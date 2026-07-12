@@ -85,16 +85,28 @@ def send_sms(text):
     api_key = os.getenv("SOLAPI_API_KEY")
     api_secret = os.getenv("SOLAPI_API_SECRET")
     from_num = os.getenv("SOLAPI_FROM_NUMBER")
-    to_num = os.getenv("ELS_ALERT_TO_NUMBER")
+    to_numbers_str = os.getenv("ELS_ALERT_TO_NUMBER")
 
-    if not all([api_key, api_secret, from_num, to_num]):
+    if not all([api_key, api_secret, from_num, to_numbers_str]):
         logging.error("환경변수가 없어 문자를 보낼 수 없습니다.")
         return
 
     service = SolapiMessageService(api_key=api_key, api_secret=api_secret)
-    message = RequestMessage(from_=from_num, to=to_num, text=text)
-    service.send(message)
-    logging.info("🎉 문자 발송 완료!")
+
+    # 💡 쉼표(,)를 기준으로 여러 개의 전화번호를 쪼개서 명단(리스트)으로 만듭니다.
+    to_numbers = [num.strip() for num in to_numbers_str.split(",")]
+
+    # 명단에 있는 번호들을 하나씩 꺼내면서 문자를 모두 발송합니다.
+    for to_num in to_numbers:
+        if not to_num: # 빈칸이면 패스
+            continue
+            
+        try:
+            message = RequestMessage(from_=from_num, to=to_num, text=text)
+            service.send(message)
+            logging.info(f"🎉 {to_num} 번호로 문자 발송 완료!")
+        except Exception as e:
+            logging.error(f"❌ {to_num} 번호 발송 실패: {e}")
 
 def run():
     logging.info("ELS 신규 상품 확인 시작")
