@@ -157,11 +157,21 @@ def run():
     final_text = "\n".join(message_lines)
     
     # 문자 쏘기!
-    send_sms(final_text[:MAX_MESSAGE_LENGTH]) # 너무 길면 잘라서 보냄
+    send_sms(final_text[:MAX_MESSAGE_LENGTH])
 
-    # 보낸 기록 저장 (다음에 중복 발송 안 되게)
+    # 보낸 기록 업데이트
     sent_ids.update(new_products["_product_id"])
-    save_sent_ids(sent_ids)
+    
+    # 💡 [핵심 안전장치] 아래 코드를 추가/수정하여 강제로 파일을 갱신합니다.
+    import json
+    import os
+    
+    # 현재 실행 폴더(깃허브 저장소 루트)에 확실하게 저장
+    with open('sent_ids.json', 'w', encoding='utf-8') as f:
+        json.dump(list(sent_ids), f, ensure_ascii=False, indent=2)
+        
+    logging.info(f"🎉 문자 발송 완료! 기록된 상품 수: {len(sent_ids)}건")
+    # 💡 이 로그를 보고 장부가 제대로 업데이트되는지 확인합니다.
 
 if __name__ == "__main__":
     configure_logging()
