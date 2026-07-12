@@ -18,13 +18,19 @@ from selenium.webdriver.support import expected_conditions as EC
 # ==========================================
 
 def automate_download():
-    # 💡 클라우드(리눅스) 환경에서도 오류가 안 나도록, 현재 실행 폴더 안에 다운로드 폴더를 만듭니다.
+    import os, glob, time
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
     DOWNLOAD_DIR = os.path.join(os.getcwd(), "downloads")
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
     options = Options()
-    
-    # 💡 [핵심] 클라우드의 '모니터 없는 환경'에서 실행하기 위한 투명 망토 옵션들!
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -34,7 +40,8 @@ def automate_download():
     prefs = {
         "download.default_directory": DOWNLOAD_DIR,
         "download.prompt_for_download": False,
-        "download.directory_upgrade": True
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True # 안전 브라우징 차단 방지
     }
     options.add_experimental_option("prefs", prefs)
     
@@ -42,20 +49,28 @@ def automate_download():
     driver = webdriver.Chrome(service=service, options=options)
     
     try:
+        # 💡 [핵심] 클라우드 투명 망토 상태에서도 무조건 다운로드를 허락하는 특수 명령어!
+        driver.execute_cdp_cmd("Page.setDownloadBehavior", {
+            "behavior": "allow",
+            "downloadPath": DOWNLOAD_DIR
+        })
+        
         existing_files = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")))
         
         driver.get("https://dis.kofia.or.kr/websquare/index.jsp?w2xPath=/wq/etcann/DISDLSSubscribing.xml&divisionId=MDIS04007001000000&serviceId=SDIS04007001000")
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 20)
         wait.until(EC.presence_of_element_located((By.XPATH, "//table[contains(@id, 'body_table')]")))
+        
+        # 버튼을 누르기 전 표가 완전히 렌더링되도록 3초 여유 대기
+        time.sleep(3)
         
         target_xpath = "/html/body/div[1]/div[2]/div/div[2]/div[3]/div/div[1]/div[2]/a[1]/img"
         btn = wait.until(EC.element_to_be_clickable((By.XPATH, target_xpath)))
         
-        time.sleep(1)
         driver.execute_script("arguments[0].click();", btn)
         
-        # 버튼 클릭 후 새 파일이 떨어질 때까지 대기
-        for _ in range(40):
+        # 💡 [핵심] 미국 서버의 느린 속도를 감안하여 최대 60초(120번)까지 인내심 있게 기다립니다.
+        for _ in range(120):
             time.sleep(0.5)
             current_files = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")))
             new_files = current_files - existing_files
@@ -65,10 +80,10 @@ def automate_download():
             if valid_new_files:
                 excel_files = [f for f in valid_new_files if f.endswith('.xls') or f.endswith('.xlsx')]
                 if excel_files:
-                    time.sleep(1)
+                    time.sleep(2) # 파일 저장이 완벽히 끝날 때까지 2초 더 뜸들이기
                     return excel_files[0]
         
-        raise Exception("다운로드된 새 엑셀 파일을 찾을 수 없습니다.")
+        raise Exception("다운로드된 새 엑셀 파일을 찾을 수 없습니다. (대기 시간 초과)")
         
     finally:
         driver.quit()
