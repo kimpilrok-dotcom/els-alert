@@ -1,0 +1,6 @@
+pandas
+xlrd
+solapi
+selenium
+webdriver-manager
+streamlit
