@@ -1,0 +1,50 @@
+name: ELS Alert
+
+on:
+  schedule:
+    # 깃허브는 기본적으로 영국 시간(UTC)을 씁니다.
+    # 한국 아침 06시 10분 = 영국 전날 밤 21시 10분입니다.
+    - cron: "10 21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-els-alert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v4
+
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 패키지 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: ELS 조회 및 문자 발송 실행
+        env:
+          SOLAPI_API_KEY: ${{ secrets.SOLAPI_API_KEY }}
+          SOLAPI_API_SECRET: ${{ secrets.SOLAPI_API_SECRET }}
+          SOLAPI_FROM_NUMBER: ${{ secrets.SOLAPI_FROM_NUMBER }}
+          ELS_ALERT_TO_NUMBER: ${{ secrets.ELS_ALERT_TO_NUMBER }}
+        run: |
+          python main.py
+
+      - name: 발송 이력 장부(sent_ids.json) 업데이트
+        run: |
+          if git diff --quiet sent_ids.json; then
+            echo "새로 문자를 보낸 상품이 없어 장부를 유지합니다."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add sent_ids.json
+            git commit -m "ELS 발송 장부 자동 업데이트"
+            git push
+          fi
