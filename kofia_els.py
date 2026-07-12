@@ -37,11 +37,15 @@ def automate_download():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
+    # 💡 [추가1] 봇으로 의심받지 않도록 일반 윈도우 크롬 브라우저인 척 위장합니다!
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
     prefs = {
         "download.default_directory": DOWNLOAD_DIR,
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
-        "safebrowsing.enabled": True # 안전 브라우징 차단 방지
+        "safebrowsing.enabled": True,
+        "profile.default_content_settings.popups": 0 # 💡 [추가2] 팝업 차단 해제
     }
     options.add_experimental_option("prefs", prefs)
     
@@ -49,7 +53,6 @@ def automate_download():
     driver = webdriver.Chrome(service=service, options=options)
     
     try:
-        # 💡 [핵심] 클라우드 투명 망토 상태에서도 무조건 다운로드를 허락하는 특수 명령어!
         driver.execute_cdp_cmd("Page.setDownloadBehavior", {
             "behavior": "allow",
             "downloadPath": DOWNLOAD_DIR
@@ -58,20 +61,31 @@ def automate_download():
         existing_files = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")))
         
         driver.get("https://dis.kofia.or.kr/websquare/index.jsp?w2xPath=/wq/etcann/DISDLSSubscribing.xml&divisionId=MDIS04007001000000&serviceId=SDIS04007001000")
-        wait = WebDriverWait(driver, 20)
+        wait = WebDriverWait(driver, 30)
+        
+        # 표의 뼈대가 나타날 때까지 대기
         wait.until(EC.presence_of_element_located((By.XPATH, "//table[contains(@id, 'body_table')]")))
         
-        # 버튼을 누르기 전 표가 완전히 렌더링되도록 3초 여유 대기
-        time.sleep(3)
+        # 💡 [추가3 핵심] 표 안에 실제 데이터가 완전히 채워질 때까지 무조건 10초를 넉넉히 기다립니다.
+        time.sleep(10)
         
-        target_xpath = "/html/body/div[1]/div[2]/div/div[2]/div[3]/div/div[1]/div[2]/a[1]/img"
+        # 💡 [추가4] 이미지(img) 태그 말고, 클릭 이벤트가 직접 걸려있는 링크(a) 태그를 직접 찌릅니다.
+        target_xpath = "/html/body/div[1]/div[2]/div/div[2]/div[3]/div/div[1]/div[2]/a[1]"
         btn = wait.until(EC.element_to_be_clickable((By.XPATH, target_xpath)))
         
         driver.execute_script("arguments[0].click();", btn)
         
-        # 💡 [핵심] 미국 서버의 느린 속도를 감안하여 최대 60초(120번)까지 인내심 있게 기다립니다.
-        for _ in range(120):
-            time.sleep(0.5)
+        # 다운로드가 완료될 때까지 체크 (최대 120초)
+        for i in range(60):
+            time.sleep(2)
+            
+            # 💡 [추가5 안전장치] 30초가 지나도 반응이 없으면 버튼을 한 번 더 누릅니다. (혹시 클릭이 씹혔을까봐)
+            if i == 15:
+                try:
+                    driver.execute_script("arguments[0].click();", btn)
+                except:
+                    pass
+            
             current_files = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")))
             new_files = current_files - existing_files
             
@@ -80,7 +94,7 @@ def automate_download():
             if valid_new_files:
                 excel_files = [f for f in valid_new_files if f.endswith('.xls') or f.endswith('.xlsx')]
                 if excel_files:
-                    time.sleep(2) # 파일 저장이 완벽히 끝날 때까지 2초 더 뜸들이기
+                    time.sleep(2) 
                     return excel_files[0]
         
         raise Exception("다운로드된 새 엑셀 파일을 찾을 수 없습니다. (대기 시간 초과)")
