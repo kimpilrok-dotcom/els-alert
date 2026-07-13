@@ -108,12 +108,6 @@ def send_sms(text):
         except Exception as e:
             logging.error(f"❌ {to_num} 번호 발송 실패: {e}")
 
-회원님께서 올려주신 기존 코드를 보니, 이미 get_row_value()나 format_product() 같은 훌륭한 자체 도구들을 잘 만들어두셨네요!
-
-기존에 사용하시던 수익률 추출 기능과 문자 포맷 기능(format_product)을 그대로 살리면서, 요청하신 4가지 조건(지수형, 수익률 정렬, 최저/차최저 낙인 각각 5개, 신규/기존 구분)이 완벽하게 돌아가도록 코드를 수정했습니다.
-
-아래 코드를 복사해서 main.py의 기존 def run(): 부분을 통째로 덮어쓰기 해주세요.
-
 def run():
     logging.info("ELS 리포트 발송 준비 시작")
     
