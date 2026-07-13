@@ -114,8 +114,6 @@ def send_sms(text):
 
 아래 코드를 복사해서 main.py의 기존 def run(): 부분을 통째로 덮어쓰기 해주세요.
 
-🛠️ ELS 프리미엄 리포트 버전 (main.py 수정)
-Python
 def run():
     logging.info("ELS 리포트 발송 준비 시작")
     
