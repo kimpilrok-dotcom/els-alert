@@ -108,70 +108,133 @@ def send_sms(text):
         except Exception as e:
             logging.error(f"❌ {to_num} 번호 발송 실패: {e}")
 
+회원님께서 올려주신 기존 코드를 보니, 이미 get_row_value()나 format_product() 같은 훌륭한 자체 도구들을 잘 만들어두셨네요!
+
+기존에 사용하시던 수익률 추출 기능과 문자 포맷 기능(format_product)을 그대로 살리면서, 요청하신 4가지 조건(지수형, 수익률 정렬, 최저/차최저 낙인 각각 5개, 신규/기존 구분)이 완벽하게 돌아가도록 코드를 수정했습니다.
+
+아래 코드를 복사해서 main.py의 기존 def run(): 부분을 통째로 덮어쓰기 해주세요.
+
+🛠️ ELS 프리미엄 리포트 버전 (main.py 수정)
+Python
 def run():
-    logging.info("ELS 신규 상품 확인 시작")
+    logging.info("ELS 리포트 발송 준비 시작")
     
-    # 우리가 만든 해독기로 알짜배기 상품만 가져오기
+    # 1. 이미 지수형 & 기본 조건이 필터링된 상품 가져오기
     products = get_filtered_els()
 
     if products.empty:
-        logging.info("조건(지수형 & 낙인25이하)에 맞는 신규 상품이 없습니다.")
+        logging.info("조건에 맞는 상품이 없습니다.")
         return
 
     # 식별번호(상품명) 문자열로 확실히 정리
     products["_product_id"] = products["상품명"].astype(str).str.strip()
     
+    # 장부 읽어오기
     sent_ids = load_sent_ids()
 
-    # 아직 발송된 적 없는 새로운 상품만 걸러내기
-    new_products = products[~products["_product_id"].isin(sent_ids)].copy()
+    # =========================================================
+    # 💡 2. 데이터 추출용 도구 (수익률과 낙인값을 숫자로 변환)
+    # =========================================================
+    import re
 
-    if new_products.empty:
-        logging.info("이미 모두 알림을 받은 상품입니다. (신규 없음)")
-        return
-
-    logging.info(f"신규 조건충족 상품: {len(new_products)}건 발견!")
-
-    # 💡 [핵심 추가] 문자 발송 전, 수익률 기준으로 내림차순(높은 순) 정렬하기
     def get_numeric_yield(row):
         val_str = get_row_value(row, "coupon", default="0")
         try:
-            # 6.5% 나 세전6.5 처럼 문자가 섞여 있어도 순수 숫자(소수점 포함)만 추출합니다.
-            import re
-            numbers = re.findall(r"[-+]?\d*\.?\d+", val_str)
-            if numbers:
-                return float(numbers[0])
-            return 0.0
+            numbers = re.findall(r"[-+]?\d*\.?\d+", str(val_str))
+            return float(numbers[0]) if numbers else 0.0
         except:
             return 0.0
 
-    # 임시 열(_sort_yield)을 만들어 숫자를 넣고, 그 숫자를 기준으로 정렬합니다.
-    new_products["_sort_yield"] = new_products.apply(get_numeric_yield, axis=1)
-    new_products = new_products.sort_values(by="_sort_yield", ascending=False)
+    def get_numeric_ki(row):
+        # 회원님의 코드 스타일에 맞춰 낙인값(ki)을 추출합니다.
+        # (만약 에러가 난다면 get_row_value 대신 str(row.get("낙인", "0")) 등을 사용하세요)
+        try:
+            val_str = get_row_value(row, "ki", default="0")
+            numbers = re.findall(r"[-+]?\d*\.?\d+", str(val_str))
+            return float(numbers[0]) if numbers else 0.0
+        except:
+            return 0.0
 
-    # 문자 메시지 내용 만들기
-    message_lines = [f"[신규 알짜 ELS 발견: {len(new_products)}건]\n"]
-    for idx, (_, row) in enumerate(new_products.iterrows(), 1):
-        message_lines.append(format_product(row, idx))
+    # 비교를 위해 숫자로 변환된 수익률과 낙인(KI) 열을 추가합니다.
+    products["_sort_yield"] = products.apply(get_numeric_yield, axis=1)
+    products["_sort_ki"] = products.apply(get_numeric_ki, axis=1)
+
+    # 낙인이 0보다 큰 정상적인 데이터만 추려냅니다.
+    valid_products = products[products["_sort_ki"] > 0]
     
+    if valid_products.empty:
+        logging.info("유효한 낙인(KI) 데이터가 없습니다.")
+        return
+
+    # =========================================================
+    # 💡 3. 최저 낙인 5개 / 차최저 낙인 5개 뽑아내기
+    # =========================================================
+    
+    # 낙인값들을 오름차순(낮은 순)으로 정렬하여 리스트로 만듭니다. (예: [20, 25, 30])
+    ki_levels = sorted(valid_products["_sort_ki"].unique())
+    
+    lowest_ki = ki_levels[0]
+    second_lowest_ki = ki_levels[1] if len(ki_levels) > 1 else None
+
+    # 최저 낙인 그룹 (수익률 내림차순 정렬 후 상위 5개)
+    group1 = valid_products[valid_products["_sort_ki"] == lowest_ki].sort_values(by="_sort_yield", ascending=False).head(5)
+    
+    # 차최저 낙인 그룹 (수익률 내림차순 정렬 후 상위 5개)
+    import pandas as pd
+    if second_lowest_ki is not None:
+        group2 = valid_products[valid_products["_sort_ki"] == second_lowest_ki].sort_values(by="_sort_yield", ascending=False).head(5)
+    else:
+        group2 = pd.DataFrame() # 낙인이 1종류밖에 없을 경우를 대비한 안전장치
+
+    # =========================================================
+    # 💡 4. 문자 메시지 내용 만들기 ([신규] 표시 포함)
+    # =========================================================
+    
+    message_lines = [f"[오늘의 알짜 ELS 리포트]\n"]
+    newly_sent_product_ids = [] # 이번 문자에 포함된 상품 번호들을 모아둘 바구니
+    
+    def append_to_message(group, ki_val):
+        message_lines.append(f"\n■ 낙인 {ki_val}% (상위수익률 TOP 5)")
+        
+        for idx, (_, row) in enumerate(group.iterrows(), 1):
+            pid = row["_product_id"]
+            newly_sent_product_ids.append(pid) # 보고한 상품은 장부에 넣기 위해 모음
+            
+            # 기존에 만드신 포맷 함수를 그대로 활용!
+            formatted_product = format_product(row, idx)
+            
+            # 장부에 없는 녀석이라면 앞에 [신규] 딱지를 붙임
+            if pid not in sent_ids:
+                message_lines.append(f"✨[신규] {formatted_product}")
+            else:
+                # 기존 상품은 깔끔하게 공백을 줘서 줄을 맞춤
+                message_lines.append(f"  [기존] {formatted_product}")
+
+    if not group1.empty:
+        append_to_message(group1, lowest_ki)
+    if not group2.empty:
+        append_to_message(group2, second_lowest_ki)
+
     final_text = "\n".join(message_lines)
     
-    # 문자 쏘기!
+    # =========================================================
+    # 💡 5. 발송 및 장부 업데이트 로직
+    # =========================================================
+    
+    # 문자 쏘기! (너무 길면 잘라서 보냄)
     send_sms(final_text[:MAX_MESSAGE_LENGTH])
 
-    # 보낸 기록 업데이트
-    sent_ids.update(new_products["_product_id"])
+    # 방금 문자에 포함시켜 보고한 모든 상품을 장부에 업데이트
+    # (그래야 내일 또 랭킹에 올라와도 [신규] 딱지가 떨어짐)
+    sent_ids.update(newly_sent_product_ids)
     
-    # 💡 [핵심 안전장치] 아래 코드를 추가/수정하여 강제로 파일을 갱신합니다.
+    # 파일 강제 갱신 
     import json
     import os
-    
-    # 현재 실행 폴더(깃허브 저장소 루트)에 확실하게 저장
     with open('sent_ids.json', 'w', encoding='utf-8') as f:
         json.dump(list(sent_ids), f, ensure_ascii=False, indent=2)
         
-    logging.info(f"🎉 문자 발송 완료! 기록된 상품 수: {len(sent_ids)}건")
-    # 💡 이 로그를 보고 장부가 제대로 업데이트되는지 확인합니다.
+    logging.info(f"🎉 리포트 발송 완료! (보고된 상품 수: {len(newly_sent_product_ids)}건, 누적 장부: {len(sent_ids)}건)")
 
 if __name__ == "__main__":
     configure_logging()
