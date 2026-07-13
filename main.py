@@ -109,44 +109,25 @@ def send_sms(text):
             logging.error(f"❌ {to_num} 번호 발송 실패: {e}")
 
 def run():
+    import pandas as pd
+    import json
+    import os
+    import re
+    
     logging.info("ELS 리포트 발송 준비 시작")
     
-    # 1. 이미 지수형 & 기본 조건이 필터링된 상품 가져오기
+    # 1. 상품 데이터 가져오기
     products = get_filtered_els()
-
     if products.empty:
         logging.info("조건에 맞는 상품이 없습니다.")
         return
 
-    # =========================================================
-    # 💡 [추측 방지 팩트 체크] 엑셀의 진짜 구조를 로그로 출력합니다.
-    logging.info(f"📌 실제 엑셀 컬럼명: {products.columns.tolist()}")
-    logging.info(f"📌 첫 번째 상품 데이터: {products.iloc[0].to_dict()}")
-    # =========================================================
-    
-    # 식별번호(상품명) 문자열로 확실히 정리
+    # 상품명 정리 및 장부 불러오기
     products["_product_id"] = products["상품명"].astype(str).str.strip()
-    
-    # 장부 읽어오기
     sent_ids = load_sent_ids()
 
-    # =========================================================
-    # 💡 2. 데이터 추출용 도구 (수익률과 낙인값을 숫자로 변환)
-    # =========================================================
-    import re
-
+    # 2. 정확한 이름표로 숫자 추출 도구 만들기
     def get_numeric_yield(row):
-        val_str = get_row_value(row, "coupon", default="0")
-        try:
-            numbers = re.findall(r"[-+]?\d*\.?\d+", str(val_str))
-            return float(numbers[0]) if numbers else 0.0
-        except:
-            return 0.0
-
-    import re
-
-    def get_numeric_yield(row):
-        # 💡 로그에서 확인한 정확한 이름표 사용 (줄바꿈 \n 포함)
         try:
             val_str = str(row.get("조건 충족시\n수익률(연, %)", "0"))
             numbers = re.findall(r"[-+]?\d*\.?\d+", val_str)
@@ -155,66 +136,59 @@ def run():
             return 0.0
 
     def get_numeric_ki(row):
-        # 💡 로그에서 확인한 정확한 이름표 사용
         try:
             val_str = str(row.get("낙인(KI)", "0")).strip()
-            
-            # [노낙인 차단] 글자 중에 '노낙인', '없음', '-' 등이 있으면 무조건 0으로 처리하여 제외
+            # [노낙인 차단]
             if "노낙인" in val_str or "없음" in val_str or val_str == "-" or val_str == "":
                 return 0.0
-                
             numbers = re.findall(r"[-+]?\d*\.?\d+", val_str)
             return float(numbers[0]) if numbers else 0.0
         except:
             return 0.0
+
+    # 추출한 숫자를 새 열에 저장
+    products["_sort_yield"] = products.apply(get_numeric_yield, axis=1)
+    products["_sort_ki"] = products.apply(get_numeric_ki, axis=1)
+
+    # 💡 [핵심] 낙인이 0보다 큰(노낙인이 아닌) 정상적인 데이터만 추려냅니다! (아까 지워졌던 부분)
+    valid_products = products[products["_sort_ki"] > 0]
     
     if valid_products.empty:
         logging.info("유효한 낙인(KI) 데이터가 없습니다.")
         return
 
-    # =========================================================
-    # 💡 3. 최저 낙인 5개 / 차최저 낙인 5개 뽑아내기
-    # =========================================================
-    
-    # 낙인값들을 오름차순(낮은 순)으로 정렬하여 리스트로 만듭니다. (예: [20, 25, 30])
+    # 3. 최저 낙인 / 차최저 낙인 찾기
     ki_levels = sorted(valid_products["_sort_ki"].unique())
-    
     lowest_ki = ki_levels[0]
     second_lowest_ki = ki_levels[1] if len(ki_levels) > 1 else None
 
-    # 최저 낙인 그룹 (수익률 내림차순 정렬 후 상위 5개)
+    # 최저 & 차최저 그룹 각각 상위 5개 추출
     group1 = valid_products[valid_products["_sort_ki"] == lowest_ki].sort_values(by="_sort_yield", ascending=False).head(5)
     
-    # 차최저 낙인 그룹 (수익률 내림차순 정렬 후 상위 5개)
-    import pandas as pd
     if second_lowest_ki is not None:
         group2 = valid_products[valid_products["_sort_ki"] == second_lowest_ki].sort_values(by="_sort_yield", ascending=False).head(5)
     else:
-        group2 = pd.DataFrame() # 낙인이 1종류밖에 없을 경우를 대비한 안전장치
+        group2 = pd.DataFrame()
 
-    # =========================================================
-    # 💡 4. 문자 메시지 내용 만들기 ([신규] 표시 포함)
-    # =========================================================
-    
-    message_lines = [f"[오늘의 알짜 ELS 리포트]\n"]
-    newly_sent_product_ids = [] # 이번 문자에 포함된 상품 번호들을 모아둘 바구니
+    # 4. 문자 메시지 조립하기
+    message_lines = ["[오늘의 알짜 ELS 리포트]\n"]
+    newly_sent_product_ids = []
     
     def append_to_message(group, ki_val):
-        message_lines.append(f"\n■ 낙인 {ki_val}% (상위수익률 TOP 5)")
-        
+        message_lines.append(f"■ 낙인 {ki_val}% (상위수익률 TOP 5)")
         for idx, (_, row) in enumerate(group.iterrows(), 1):
             pid = row["_product_id"]
-            newly_sent_product_ids.append(pid) # 보고한 상품은 장부에 넣기 위해 모음
+            newly_sent_product_ids.append(pid)
             
-            # 기존에 만드신 포맷 함수를 그대로 활용!
+            # 기존 포맷 함수 사용
             formatted_product = format_product(row, idx)
             
-            # 장부에 없는 녀석이라면 앞에 [신규] 딱지를 붙임
+            # 신규 / 기존 태그 부착
             if pid not in sent_ids:
                 message_lines.append(f"✨[신규] {formatted_product}")
             else:
-                # 기존 상품은 깔끔하게 공백을 줘서 줄을 맞춤
                 message_lines.append(f"  [기존] {formatted_product}")
+        message_lines.append("") # 그룹 간 띄어쓰기
 
     if not group1.empty:
         append_to_message(group1, lowest_ki)
@@ -223,20 +197,11 @@ def run():
 
     final_text = "\n".join(message_lines)
     
-    # =========================================================
-    # 💡 5. 발송 및 장부 업데이트 로직
-    # =========================================================
-    
-    # 문자 쏘기! (너무 길면 잘라서 보냄)
+    # 5. 발송 및 장부 업데이트
     send_sms(final_text[:MAX_MESSAGE_LENGTH])
 
-    # 방금 문자에 포함시켜 보고한 모든 상품을 장부에 업데이트
-    # (그래야 내일 또 랭킹에 올라와도 [신규] 딱지가 떨어짐)
     sent_ids.update(newly_sent_product_ids)
     
-    # 파일 강제 갱신 
-    import json
-    import os
     with open('sent_ids.json', 'w', encoding='utf-8') as f:
         json.dump(list(sent_ids), f, ensure_ascii=False, indent=2)
         
