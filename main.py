@@ -175,7 +175,9 @@ def run():
     newly_sent_product_ids = []
     
     def append_to_message(group, ki_val):
-        message_lines.append(f"■ 낙인 {ki_val}% (상위수익률 TOP 5)")
+        # 💡 [수정 1] 낙인 뒤에 붙던 '%' 기호를 삭제했습니다. (예: 낙인 20.0)
+        message_lines.append(f"■ 낙인 {ki_val} (상위수익률 TOP 5)")
+        
         for idx, (_, row) in enumerate(group.iterrows(), 1):
             pid = row["_product_id"]
             newly_sent_product_ids.append(pid)
@@ -183,12 +185,21 @@ def run():
             # 기존 포맷 함수 사용
             formatted_product = format_product(row, idx)
             
-            # 신규 / 기존 태그 부착
+            # 💡 [수정 2] 제품 사이의 점선을 지우고, 빈칸을 깔끔하게 정리합니다.
+            import re
+            formatted_product = re.sub(r"-{3,}", "", formatted_product) 
+            
+            # 💡 [보너스] 기초자산 글자 사이에 끼어있는 <br/> 태그를 쉼표(, )로 바꿉니다.
+            formatted_product = formatted_product.replace("<br/>", ", ").replace("<br>", ", ")
+            formatted_product = formatted_product.strip()
+            
+            # 신규 / 기존 태그 부착 (제품들 사이에 살짝 여백을 주기 위해 끝에 \n 추가)
             if pid not in sent_ids:
-                message_lines.append(f"✨[신규] {formatted_product}")
+                message_lines.append(f"✨[신규] {formatted_product}\n")
             else:
-                message_lines.append(f"  [기존] {formatted_product}")
-        message_lines.append("") # 그룹 간 띄어쓰기
+                message_lines.append(f"  [기존] {formatted_product}\n")
+        
+        message_lines.append("") # 그룹(낙인) 간 띄어쓰기
 
     if not group1.empty:
         append_to_message(group1, lowest_ki)
