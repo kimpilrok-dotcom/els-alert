@@ -138,15 +138,19 @@ def run():
             return 0.0
 
     def get_numeric_ki(row):
-        # 회원님의 코드 스타일에 맞춰 낙인값(ki)을 추출합니다.
-        # (만약 에러가 난다면 get_row_value 대신 str(row.get("낙인", "0")) 등을 사용하세요)
+        # '낙인배리어' 또는 '낙인' 열에서 값을 가져옵니다.
+        val_str = str(row.get("낙인배리어", row.get("낙인", row.get("ki", "0")))).strip()
+        
+        # 💡 [노낙인 차단] 글자 중에 '노낙인', '없음'이 있거나 비어있으면 무조건 0을 반환합니다.
+        if "노낙인" in val_str or "없음" in val_str or val_str == "-" or val_str == "":
+            return 0.0
+            
         try:
-            val_str = get_row_value(row, "ki", default="0")
-            numbers = re.findall(r"[-+]?\d*\.?\d+", str(val_str))
+            import re
+            numbers = re.findall(r"[-+]?\d*\.?\d+", val_str)
             return float(numbers[0]) if numbers else 0.0
         except:
             return 0.0
-
     # 비교를 위해 숫자로 변환된 수익률과 낙인(KI) 열을 추가합니다.
     products["_sort_yield"] = products.apply(get_numeric_yield, axis=1)
     products["_sort_ki"] = products.apply(get_numeric_ki, axis=1)
