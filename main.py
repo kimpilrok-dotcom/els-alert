@@ -118,6 +118,12 @@ def run():
         logging.info("조건에 맞는 상품이 없습니다.")
         return
 
+    # =========================================================
+    # 💡 [추측 방지 팩트 체크] 엑셀의 진짜 구조를 로그로 출력합니다.
+    logging.info(f"📌 실제 엑셀 컬럼명: {products.columns.tolist()}")
+    logging.info(f"📌 첫 번째 상품 데이터: {products.iloc[0].to_dict()}")
+    # =========================================================
+    
     # 식별번호(상품명) 문자열로 확실히 정리
     products["_product_id"] = products["상품명"].astype(str).str.strip()
     
