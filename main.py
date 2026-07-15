@@ -190,24 +190,29 @@ def run():
             formatted_product = formatted_product.replace("<br/>", ", ").replace("<br>", ", ")
             formatted_product = formatted_product.strip()
             
-            # 💡 [추가된 기능] 청약기간 데이터 가져오기 (예: "20260706")
+            # 청약기간 데이터 가져오기
             s_date = str(row.get("청약시작일", "")).split('.')[0]
             e_date = str(row.get("청약종료일", "")).split('.')[0]
             
-            # "20260706"을 "07.06"으로 보기 좋게 자르는 함수
             def format_d(d):
                 return f"{d[4:6]}.{d[6:8]}" if len(d) == 8 else d
             
             period_str = f"청약: {format_d(s_date)} ~ {format_d(e_date)}"
-            
-            # 기존 정보 맨 아랫줄에 청약기간 추가
             formatted_product = f"{formatted_product}\n{period_str}"
+            
+            # 💡 [추가된 기능] USD(달러) 상품인지 샅샅이 확인하기
+            is_usd = False
+            search_text = str(row.get("상품명", "")) + str(row.get("비고", "")) + str(row.get("상품유형", ""))
+            if "USD" in search_text.upper() or "달러" in search_text:
+                is_usd = True
+                
+            usd_tag = "💵[USD] " if is_usd else ""
             
             # 신규 / 기존 태그 부착
             if pid not in sent_ids:
-                message_lines.append(f"✨[신규] {formatted_product}\n")
+                message_lines.append(f"✨[신규] {usd_tag}{formatted_product}\n")
             else:
-                message_lines.append(f"  [기존] {formatted_product}\n")
+                message_lines.append(f"  [기존] {usd_tag}{formatted_product}\n")
         
         message_lines.append("") # 그룹 간 띄어쓰기
 
