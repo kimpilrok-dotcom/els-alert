@@ -18,7 +18,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # ==========================================
 
 def automate_download():
-    import os, glob, time
+    import os, glob, time, platform
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.chrome.service import Service
@@ -49,7 +49,13 @@ def automate_download():
     }
     options.add_experimental_option("prefs", prefs)
     
-    service = Service(ChromeDriverManager().install())
+    # 💡 [핵심 추가] 클라우드(리눅스) 환경과 내 PC(윈도우) 환경을 자동으로 구분합니다!
+    if platform.system() == "Linux":
+        options.binary_location = "/usr/bin/chromium"
+        service = Service("/usr/bin/chromedriver")
+    else:
+        service = Service(ChromeDriverManager().install())
+        
     driver = webdriver.Chrome(service=service, options=options)
     
     try:
@@ -101,9 +107,6 @@ def automate_download():
         
     finally:
         driver.quit()
-
-import re
-import pandas as pd
 
 # ==========================================
 # ⬇️ 해독기 함수만 이걸로 덮어쓰기 하세요 ⬇️
