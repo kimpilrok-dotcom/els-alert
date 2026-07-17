@@ -16,7 +16,7 @@ def get_data():
     return df
 
 try:
-    # 데이터 불러오기 (최초 1회만 약 20초 소요, 이후로는 1초 만에 뜸!)
+    # 데이터 불러오기
     with st.spinner("로봇이 최신 데이터를 수집하고 있습니다... (최초 1회만 대기)"):
         raw_df = get_data()
     
@@ -29,7 +29,6 @@ try:
     # --- 필터 1: 기초자산 유형 ---
     if '유형' in raw_df.columns:
         type_options = raw_df['유형'].unique().tolist()
-        # 기본값으로 모든 유형을 선택해 둡니다.
         selected_types = st.sidebar.multiselect("✅ 기초자산 유형", type_options, default=type_options)
         if selected_types:
             filtered_df = filtered_df[filtered_df['유형'].isin(selected_types)]
@@ -37,7 +36,6 @@ try:
     # --- 필터 2: 낙인(KI) 조건 ---
     if '낙인(KI)' in raw_df.columns:
         ki_options = raw_df['낙인(KI)'].unique().tolist()
-        # 기본값으로 전체 선택
         selected_ki = st.sidebar.multiselect("🛡️ 낙인(KI) 조건", ki_options, default=ki_options)
         if selected_ki:
             filtered_df = filtered_df[filtered_df['낙인(KI)'].isin(selected_ki)]
@@ -52,10 +50,29 @@ try:
     # --- 필터 4: 발행 증권사 ---
     company_col = next((col for col in raw_df.columns if '발행' in col or '회사' in col or '증권' in col), None)
     if company_col:
-        company_options = raw_df[company_col].astype(str).unique().tolist()
+        # 가나다순으로 깔끔하게 정렬해서 보여줍니다.
+        company_options = sorted(raw_df[company_col].astype(str).unique().tolist())
         selected_companies = st.sidebar.multiselect("🏢 발행 증권사", company_options)
         if selected_companies:
-            filtered_df = filtered_df[filtered_df[company_col].isin(selected_companies)]
+            filtered_df = filtered_df[filtered_df[company_col].astype(str).isin(selected_companies)]
+
+    # --- 💡 필터 5: 조기상환배리어 (새로 추가됨!) ---
+    barrier_col = next((col for col in raw_df.columns if '상환' in col and '조건' in col), None)
+    if barrier_col:
+        # 배리어는 "95-95..." 처럼 다양하므로 직접 입력해서 찾도록 텍스트 검색을 씁니다.
+        search_barrier = st.sidebar.text_input("📉 조기상환배리어 (예: 95-95, 85-80)")
+        if search_barrier:
+            filtered_df = filtered_df[filtered_df[barrier_col].astype(str).str.contains(search_barrier, na=False, case=False)]
+
+    # --- 💡 필터 6: 조기상환주기 (새로 추가됨!) ---
+    cycle_col = next((col for col in raw_df.columns if '주기' in col), None)
+    if cycle_col:
+        # 숫자나 글자(3, 6, 6개월 등)를 찾아 선택지로 깔끔하게 만듭니다.
+        cycle_options = raw_df[cycle_col].dropna().astype(str).unique().tolist()
+        cycle_options = [c for c in cycle_options if c.lower() != 'nan' and c.strip() != '']
+        selected_cycle = st.sidebar.multiselect("⏳ 조기상환주기", sorted(cycle_options))
+        if selected_cycle:
+            filtered_df = filtered_df[filtered_df[cycle_col].astype(str).isin(selected_cycle)]
 
     # 3. 화면 오른쪽에 결과 표 보여주기
     st.subheader(f"총 {len(filtered_df)}개의 ELS 상품이 검색되었습니다. (전체 {len(raw_df)}개 중)")
