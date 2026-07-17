@@ -110,7 +110,6 @@ def parse_kofia_file(file_path):
     for i, row in raw_df.iterrows():
         row_text = " ".join(str(x) for x in row.values)
         
-        # --- 1) 낙인(KI) ---
         if row_text is None:
             m1 = None
         else:
@@ -129,7 +128,6 @@ def parse_kofia_file(file_path):
         elif no_ki_match: ki_list.append("노낙인")
         else: ki_list.append("-")
         
-        # --- 2) 기초자산 유형 ---
         if asset_col_idx is not None:
             asset_val = str(row.iloc[asset_col_idx])
             if '기초자산' in asset_val or asset_val.strip() == 'nan' or asset_val.strip() == '':
@@ -152,7 +150,6 @@ def parse_kofia_file(file_path):
         else:
             type_list.append("-")
             
-        # --- 3) 배리어, 만기, 주기 (정밀 타격) ---
         clean_text = re.sub(r'\([A-Za-z0-9]+\)', '', str(row_text))
         m_barrier = re.search(r'(\d{2,3}(?:[-\/]\d{2,3}){2,})', clean_text)
         if m_barrier: 
