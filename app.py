@@ -94,9 +94,36 @@ try:
             mask = filtered_df["기초자산"].astype(str).apply(lambda x: any(sel in x for sel in selected_assets))
             filtered_df = filtered_df[mask]
 
+    # 💡 [수정된 정렬 기능] '노낙인', '낙인없음', '-' 기호는 무조건 밑으로 가도록 9999로 처리
+    def get_sort_ki(ki_str):
+        val = str(ki_str).strip()
+        if "노낙인" in val or "없음" in val or val == "-": 
+            return 9999.0
+        m = re.search(r'(\d+)', val)
+        if m: return float(m.group(1))
+        return 9999.0
+
+    def get_sort_yield(row):
+        for c in row.index:
+            if "수익" in str(c):
+                v = str(row[c])
+                if v.lower() != "nan" and v.strip() != "":
+                    m = re.search(r'([\d\.]+)', v)
+                    if m: return float(m.group(1))
+        prod_name = str(row.get("상품명", ""))
+        m = re.search(r"(?:연\s*|)([\d\.]+)%", prod_name)
+        if m: return float(m.group(1))
+        return 0.0
+
+    filtered_df['sort_ki'] = filtered_df['낙인(KI)'].apply(get_sort_ki)
+    filtered_df['sort_yield'] = filtered_df.apply(get_sort_yield, axis=1)
+    
+    # sort_ki(낙인)는 오름차순(낮은 것부터), sort_yield(수익률)는 내림차순(높은 것부터) 정렬
+    filtered_df = filtered_df.sort_values(by=['sort_ki', 'sort_yield'], ascending=[True, False])
+    filtered_df = filtered_df.drop(columns=['sort_ki', 'sort_yield'])
+
     st.subheader(f"총 {len(filtered_df)}개의 ELS 상품이 검색되었습니다.")
     
-    # 💡 [새로 추가된 기능] 엑셀 뷰와 리스트 뷰 탭 분리
     tab1, tab2 = st.tabs(["📊 엑셀(표) 형태로 보기", "📝 리스트(카드) 형태로 보기"])
     
     with tab1:
@@ -119,7 +146,6 @@ try:
                 cycle = get_val("조기상환주기")
                 barrier = get_val("조기상환배리어")
                 
-                # 1. 수익률 추출
                 yield_val = "-"
                 for c in row.index:
                     if "수익" in str(c):
@@ -131,7 +157,6 @@ try:
                     m = re.search(r"(?:연\s*|)([\d\.]+)%", prod_name)
                     if m: yield_val = f"연 {m.group(1)}%"
                         
-                # 2. 청약기간(시작~종료) 조합
                 start_date = ""
                 end_date = ""
                 for c in row.index:
@@ -152,7 +177,6 @@ try:
                             if v.lower() != "nan" and v != "": sub_period = v
                             break
 
-                # 3. 카드 형태로 예쁘게 화면에 출력
                 st.markdown(f'''
                 
                     {prod_name}
