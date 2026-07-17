@@ -130,7 +130,6 @@ def parse_kofia_file(file_path):
             if "기초자산" in asset_val or asset_val.strip() == "nan" or asset_val.strip() == "":
                 type_list.append("-")
             else:
-                # 💡 에러 원인 1 제거: <BR/> 기호를 우회 코드로 변경했습니다.
                 tag_br = chr(60) + "BR/" + chr(62)
                 clean_asset = asset_val.upper().replace(tag_br, ",").replace("\n", ",").replace("/", ",")
                 
@@ -162,8 +161,8 @@ def parse_kofia_file(file_path):
         else: 
             maturity_list.append("-")
 
-        # 💡 에러 원인 2 제거: 짤림을 유발하던 부등호 로직을 부등호 없는 정규식으로 안전하게 대체했습니다.
-        m_cycle = re.search(r"(?:^|[^0-9\.])(\d+)\s*(개월|m)(?!\w)", str(row_text), re.IGNORECASE)
+        # 💡 수정 포인트: "단위" 글자가 붙어 있어도 정상적으로 숫자를 가져오도록 제한을 풀었습니다.
+        m_cycle = re.search(r"(?:^|[^0-9\.])(\d+)\s*(개월|m)", str(row_text), re.IGNORECASE)
         if m_cycle: 
             cycle_list.append(m_cycle.group(1) + "개월")
         else: 
