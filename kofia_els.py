@@ -138,7 +138,7 @@ def parse_kofia_file(file_path):
     # 2. 줄마다 스캔하며 데이터 추출
     for i, row in raw_df.iterrows():
         row_text = " ".join(str(x) for x in row.values)
-        
+        print(f"DEBUG: row_text type is {type(row_text)}, value is {row_text}")
         # --- 1) 낙인(KI) 추출 ---
         if row_text is None:
            m1 = None
