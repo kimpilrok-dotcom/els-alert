@@ -112,17 +112,23 @@ def automate_download():
 # ⬇️ 해독기 함수만 이걸로 덮어쓰기 하세요 ⬇️
 # ==========================================
 
+import re
+import pandas as pd
+
 def parse_kofia_file(file_path):
     # 1. 원본 엑셀 읽어오기
     raw_df = pd.read_excel(file_path, engine='xlrd')
     raw_df.columns = raw_df.columns.astype(str)
     
-    # 💡 [핵심] '기초자산' 데이터가 도대체 몇 번째 칸에 있는지 로봇이 스스로 찾아냅니다.
+    # 💡 기초자산과 상품명 열이 몇 번째인지 찾습니다.
     asset_col_idx = None
+    prod_col_idx = None
     for j in range(len(raw_df.columns)):
         if '기초자산' in str(raw_df.columns[j]):
             asset_col_idx = j
-            break
+        if '상품명' in str(raw_df.columns[j]):
+            prod_col_idx = j
+
     if asset_col_idx is None:
         for i in range(min(15, len(raw_df))):
             for j in range(len(raw_df.columns)):
@@ -134,24 +140,25 @@ def parse_kofia_file(file_path):
 
     ki_list = []
     type_list = []
+    barrier_list = []  # 💡 새로 추가된 배리어 저장소
+    cycle_list = []    # 💡 새로 추가된 주기 저장소
     
-    # 지수(Index)를 판별하는 핵심 키워드 사전
     index_keywords = ['INDEX', '지수', 'KOSPI', 'S&P', 'EURO', 'HSCEI', 'NIKKEI', 'STOXX', 'NIFTY', 'CSI', 'KRX', '코스피', '다우', '나스닥', 'DOW', 'NASDAQ', 'NDX', '항셍']
     
     # 2. 줄마다 스캔하며 데이터 추출
     for i, row in raw_df.iterrows():
         row_text = " ".join(str(x) for x in row.values)
-        print(f"DEBUG: row_text type is {type(row_text)}, value is {row_text}")
+        
         # --- 1) 낙인(KI) 추출 ---
         if row_text is None:
-           m1 = None
+            m1 = None
         else:
-           m1 = re.search(r'(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})', str(row_text), re.IGNORECASE)
-        m2 = re.search(r'(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)', row_text, re.IGNORECASE)
-        m3 = re.search(r'-\s*\d{2,3}\s*/\s*(\d{2,3})', row_text)
-        m4 = re.search(r'(\d{2,3})%-\(', row_text)
-        m5 = re.search(r'월지급\s*(?:배리어|베리어)?\s*(\d{2,3})', row_text)
-        no_ki_match = re.search(r'(?:No\s*KI|노낙인|노녹인|No\s*Knock[\s\-]*in|KI\s*없음|낙인\s*없음|녹인\s*없음|K/I\s*없음)', row_text, re.IGNORECASE)
+            m1 = re.search(r'(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})', str(row_text), re.IGNORECASE)
+        m2 = re.search(r'(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)', str(row_text), re.IGNORECASE)
+        m3 = re.search(r'-\s*\d{2,3}\s*/\s*(\d{2,3})', str(row_text))
+        m4 = re.search(r'(\d{2,3})%-\(', str(row_text))
+        m5 = re.search(r'월지급\s*(?:배리어|베리어)?\s*(\d{2,3})', str(row_text))
+        no_ki_match = re.search(r'(?:No\s*KI|노낙인|노녹인|No\s*Knock[\s\-]*in|KI\s*없음|낙인\s*없음|녹인\s*없음|K/I\s*없음)', str(row_text), re.IGNORECASE)
         
         if m1: ki_list.append(m1.group(1))
         elif m2: ki_list.append(m2.group(1))
@@ -164,60 +171,49 @@ def parse_kofia_file(file_path):
         # --- 2) 기초자산 유형 분류 ---
         if asset_col_idx is not None:
             asset_val = str(row.iloc[asset_col_idx])
-            # 머리글(헤더) 줄이거나 빈칸이면 건너뜀
             if '기초자산' in asset_val or asset_val.strip() == 'nan' or asset_val.strip() == '':
                 type_list.append("-")
             else:
-                # 기호들을 쉼표로 통일하여 각각의 자산으로 분리 (예: 삼성전자, KOSPI200)
                 clean_asset = asset_val.upper().replace('<BR/>', ',').replace('\n', ',').replace('/', ',')
                 assets = [a.strip() for a in clean_asset.split(',') if a.strip()]
-                
                 has_index = False
                 has_stock = False
-                
                 for asset in assets:
-                    # 지수 키워드가 포함되어 있으면 지수, 없으면 종목(주식)으로 간주
                     if any(k in asset for k in index_keywords):
                         has_index = True
                     else:
                         has_stock = True
-                        
-                # 판독 결과 저장
-                if has_index and has_stock:
-                    type_list.append("혼합형")
-                elif has_index:
-                    type_list.append("지수형")
-                elif has_stock:
-                    type_list.append("종목형")
-                else:
-                    type_list.append("-")
+                if has_index and has_stock: type_list.append("혼합형")
+                elif has_index: type_list.append("지수형")
+                elif has_stock: type_list.append("종목형")
+                else: type_list.append("-")
         else:
             type_list.append("-")
             
-    # 3. 맨 앞에 열 2개 추가 (순서대로 꽂기 위해 유형을 먼저, 그다음 낙인을 맨 앞에 넣습니다)
+        # --- 💡 3) 배리어 및 주기 추출 ---
+        if prod_col_idx is not None:
+            prod_name = str(row.iloc[prod_col_idx])
+            
+            # 배리어 찾기 (예: 숫자가 3번 이상 하이픈으로 연결된 95-90-85 패턴)
+            m_barrier = re.search(r'(\d{2,3}(?:-\d{2,3}){2,})', prod_name)
+            if m_barrier: barrier_list.append(m_barrier.group(1))
+            else: barrier_list.append("-")
+                
+            # 주기 찾기 (예: 6개월, 3개월)
+            m_cycle = re.search(r'(\d+개월|\d+년)', prod_name)
+            if m_cycle: cycle_list.append(m_cycle.group(1))
+            else: cycle_list.append("-")
+        else:
+            barrier_list.append("-")
+            cycle_list.append("-")
+            
+    # 3. 맨 앞에 열 추가 (순서대로 꽂기 위해 역순으로 insert 합니다)
+    raw_df.insert(0, '조기상환주기', cycle_list)
+    raw_df.insert(0, '조기상환배리어', barrier_list)
     raw_df.insert(0, '유형', type_list)
     raw_df.insert(0, '낙인(KI)', ki_list)
     
     return raw_df
-
-# UI 출력 부분
-if __name__ == "__main__":
-    st.set_page_config(page_title="KOFIA ELS/DLS 통합 허브", layout="wide")
-    st.title("🏆 금융투자협회 ELS/DLS 통합 조회 허브")
-
-    if st.button("🚀 자동 수집 및 분석 시작", width="stretch"):
-        with st.spinner("로봇이 금투협에서 최신 데이터를 가져오는 중입니다... (약 10초 소요)"):
-            try:
-                path = automate_download()
-                df = parse_kofia_file(path)
-                st.session_state['data'] = df
-                st.success(f"✅ 성공! 금투협에서 {len(df)}개의 최신 상품을 가져왔습니다.")
-            except Exception as e:
-                st.error(f"오류가 발생했습니다: {e}")
-
-    if 'data' in st.session_state:
-        st.divider()
-        st.dataframe(st.session_state['data'], use_container_width=True)
 
 # ==========================================
 # ⬇️ 수정된 필터링 함수 (기존 함수 덮어쓰기) ⬇️
