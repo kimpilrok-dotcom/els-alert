@@ -116,11 +116,9 @@ import re
 import pandas as pd
 
 def parse_kofia_file(file_path):
-    # 1. 원본 엑셀 읽어오기
     raw_df = pd.read_excel(file_path, engine='xlrd')
     raw_df.columns = raw_df.columns.astype(str)
     
-    # 💡 기초자산과 상품명 열이 몇 번째인지 찾습니다.
     asset_col_idx = None
     prod_col_idx = None
     for j in range(len(raw_df.columns)):
@@ -140,16 +138,16 @@ def parse_kofia_file(file_path):
 
     ki_list = []
     type_list = []
-    barrier_list = []  # 💡 새로 추가된 배리어 저장소
-    cycle_list = []    # 💡 새로 추가된 주기 저장소
+    barrier_list = []  
+    cycle_list = []    
+    maturity_list = [] # 💡 새로 추가된 '만기' 저장소
     
     index_keywords = ['INDEX', '지수', 'KOSPI', 'S&P', 'EURO', 'HSCEI', 'NIKKEI', 'STOXX', 'NIFTY', 'CSI', 'KRX', '코스피', '다우', '나스닥', 'DOW', 'NASDAQ', 'NDX', '항셍']
     
-    # 2. 줄마다 스캔하며 데이터 추출
     for i, row in raw_df.iterrows():
         row_text = " ".join(str(x) for x in row.values)
         
-        # --- 1) 낙인(KI) 추출 ---
+        # --- 1) 낙인(KI) ---
         if row_text is None:
             m1 = None
         else:
@@ -168,7 +166,7 @@ def parse_kofia_file(file_path):
         elif no_ki_match: ki_list.append("노낙인")
         else: ki_list.append("-")
         
-        # --- 2) 기초자산 유형 분류 ---
+        # --- 2) 기초자산 유형 ---
         if asset_col_idx is not None:
             asset_val = str(row.iloc[asset_col_idx])
             if '기초자산' in asset_val or asset_val.strip() == 'nan' or asset_val.strip() == '':
@@ -190,24 +188,26 @@ def parse_kofia_file(file_path):
         else:
             type_list.append("-")
             
-        # --- 💡 3) 배리어 및 주기 추출 (전체 칸 뒤지기) ---
-    
-        # 배리어 찾기 (예: 숫자가 3번 이상 하이픈이나 슬래시로 연결된 95-90-85 또는 95/90/85)
-        m_barrier = re.search(r'(\d{2,3}(?:[-\/]\d{2,3}){2,})', str(row_text))
-        if m_barrier: 
-           barrier_list.append(m_barrier.group(1))
-        else: 
-           barrier_list.append("-")
+        # --- 💡 3) 배리어, 만기, 주기 추출 (정확히 분리) ---
         
-        # 주기 찾기 (예: 6개월, 3개월, 1년)
-        m_cycle = re.search(r'(\d{1,2}개월|\d{1,2}년)', str(row_text))
-        if m_cycle: 
-           cycle_list.append(m_cycle.group(1))
-        else: 
-           cycle_list.append("-")
+        # 배리어 찾기 (예: 95-90-85)
+        m_barrier = re.search(r'(\d{2,3}(?:[-\/]\d{2,3}){2,})', str(row_text))
+        if m_barrier: barrier_list.append(m_barrier.group(1))
+        else: barrier_list.append("-")
             
-    # 3. 맨 앞에 열 추가 (순서대로 꽂기 위해 역순으로 insert 합니다)
+        # 만기 찾기 (예: 1년, 1.5년, 3년)
+        m_maturity = re.search(r'(\d+(?:\.\d+)?년)', str(row_text))
+        if m_maturity: maturity_list.append(m_maturity.group(1))
+        else: maturity_list.append("-")
+
+        # 주기 찾기 (예: 3개월, 4개월, 6개월)
+        m_cycle = re.search(r'(\d+개월)', str(row_text))
+        if m_cycle: cycle_list.append(m_cycle.group(1))
+        else: cycle_list.append("-")
+            
+    # 3. 맨 앞에 열 5개 추가 (역순 삽입)
     raw_df.insert(0, '조기상환주기', cycle_list)
+    raw_df.insert(0, '만기', maturity_list)
     raw_df.insert(0, '조기상환배리어', barrier_list)
     raw_df.insert(0, '유형', type_list)
     raw_df.insert(0, '낙인(KI)', ki_list)
