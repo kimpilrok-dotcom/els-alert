@@ -27,7 +27,6 @@ def automate_download():
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
 
-    # 💡 [핵심 수정 1] 클라우드(리눅스) 서버는 보안상 /tmp 폴더에만 파일 저장이 가능합니다.
     if platform.system() == "Linux":
         DOWNLOAD_DIR = "/tmp/els_downloads"
     else:
@@ -61,7 +60,6 @@ def automate_download():
     driver = webdriver.Chrome(service=service, options=options)
     
     try:
-        # 💡 [핵심 수정 2] 최신 헤드리스 크롬에서도 무조건 다운로드를 허용하도록 권한 명령어를 2중으로 걸어줍니다.
         try:
             driver.execute_cdp_cmd("Browser.setDownloadBehavior", {
                 "behavior": "allow",
@@ -86,17 +84,30 @@ def automate_download():
         
         target_xpath = "/html/body/div[1]/div[2]/div/div[2]/div[3]/div/div[1]/div[2]/a[1]"
         btn = wait.until(EC.element_to_be_clickable((By.XPATH, target_xpath)))
-        
         driver.execute_script("arguments[0].click();", btn)
         
         for i in range(60):
             time.sleep(2)
             
+            # 💡 [진단 1] 금융투자협회 사이트에서 경고창(IP 차단, 데이터 없음 등)을 띄웠는지 실시간 감시
+            try:
+                alert = driver.switch_to.alert
+                alert_msg = alert.text
+                alert.accept()
+                raise Exception(f"🚨 KOFIA 사이트 경고창 발생: {alert_msg}")
+            except Exception as e:
+                if "🚨" in str(e):
+                    raise e
+                pass
+            
+            # 💡 [진단 2] 15초가 지나도 반응이 없으면, 위치가 틀어진 것으로 간주하고 엑셀 모양 아이콘을 직접 찾아서 클릭
             if i == 15:
                 try:
-                    driver.execute_script("arguments[0].click();", btn)
+                    excel_img = driver.find_element(By.XPATH, "//img[contains(@src, 'excel') or contains(@alt, '엑셀')]")
+                    driver.execute_script("arguments[0].click();", excel_img)
                 except:
-                    pass
+                    try: driver.execute_script("arguments[0].click();", btn)
+                    except: pass
             
             current_files = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")))
             new_files = current_files - existing_files
