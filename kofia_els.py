@@ -190,22 +190,21 @@ def parse_kofia_file(file_path):
         else:
             type_list.append("-")
             
-        # --- 💡 3) 배리어 및 주기 추출 ---
-        if prod_col_idx is not None:
-            prod_name = str(row.iloc[prod_col_idx])
-            
-            # 배리어 찾기 (예: 숫자가 3번 이상 하이픈으로 연결된 95-90-85 패턴)
-            m_barrier = re.search(r'(\d{2,3}(?:-\d{2,3}){2,})', prod_name)
-            if m_barrier: barrier_list.append(m_barrier.group(1))
-            else: barrier_list.append("-")
-                
-            # 주기 찾기 (예: 6개월, 3개월)
-            m_cycle = re.search(r'(\d+개월|\d+년)', prod_name)
-            if m_cycle: cycle_list.append(m_cycle.group(1))
-            else: cycle_list.append("-")
-        else:
-            barrier_list.append("-")
-            cycle_list.append("-")
+        # --- 💡 3) 배리어 및 주기 추출 (전체 칸 뒤지기) ---
+    
+        # 배리어 찾기 (예: 숫자가 3번 이상 하이픈이나 슬래시로 연결된 95-90-85 또는 95/90/85)
+        m_barrier = re.search(r'(\d{2,3}(?:[-\/]\d{2,3}){2,})', str(row_text))
+        if m_barrier: 
+           barrier_list.append(m_barrier.group(1))
+        else: 
+           barrier_list.append("-")
+        
+        # 주기 찾기 (예: 6개월, 3개월, 1년)
+        m_cycle = re.search(r'(\d{1,2}개월|\d{1,2}년)', str(row_text))
+        if m_cycle: 
+           cycle_list.append(m_cycle.group(1))
+        else: 
+           cycle_list.append("-")
             
     # 3. 맨 앞에 열 추가 (순서대로 꽂기 위해 역순으로 insert 합니다)
     raw_df.insert(0, '조기상환주기', cycle_list)
