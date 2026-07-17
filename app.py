@@ -60,8 +60,6 @@ try:
     if "조기상환배리어" in raw_df.columns:
         first_barriers = raw_df["조기상환배리어"].astype(str).str.split('-').str[0]
         valid_barriers = list(set([b for b in first_barriers if b != "-" and b.strip() != ""]))
-        
-        # 💡 내림차순 정렬 (높은 숫자가 먼저 오도록 정렬)
         barrier_options = sorted(valid_barriers, key=lambda x: float(x) if x.replace('.', '', 1).isdigit() else 0, reverse=True)
         
         selected_first_barrier = st.sidebar.multiselect("📉 최초상환배리어", barrier_options)
@@ -75,7 +73,6 @@ try:
             filtered_df = filtered_df[filtered_df["발행회사"].isin(selected_companies)]
             
     if "기초자산" in raw_df.columns:
-        # 💡 1. 기초자산을 조합이 아닌 개별 종목으로 모두 쪼갭니다.
         all_assets = []
         for asset_str in raw_df["기초자산"].dropna():
             if str(asset_str).lower() != "nan" and str(asset_str).strip() != "":
@@ -83,29 +80,94 @@ try:
                 all_assets.extend(parts)
         
         unique_assets = list(set([a for a in all_assets if a]))
-        
-        # 💡 2. 지수형과 종목형을 구분합니다.
         index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "나스닥", "DOW", "NASDAQ", "NDX", "항셍"]
         
         indices = []
         stocks = []
         for a in unique_assets:
-            if any(k.upper() in a.upper() for k in index_keywords):
-                indices.append(a)
-            else:
-                stocks.append(a)
+            if any(k.upper() in a.upper() for k in index_keywords): indices.append(a)
+            else: stocks.append(a)
                 
-        # 💡 3. 지수형 먼저(가나다순), 그 다음 종목형(가나다순)으로 합칩니다.
         asset_options = sorted(indices) + sorted(stocks)
-        
         selected_assets = st.sidebar.multiselect("🔎 기초자산 (지수형 먼저 표시)", asset_options)
         if selected_assets:
-            # 선택한 기초자산 중 하나라도 포함되어 있으면 보여주도록 필터링합니다.
             mask = filtered_df["기초자산"].astype(str).apply(lambda x: any(sel in x for sel in selected_assets))
             filtered_df = filtered_df[mask]
 
     st.subheader(f"총 {len(filtered_df)}개의 ELS 상품이 검색되었습니다.")
-    st.dataframe(filtered_df, use_container_width=True)
+    
+    # 💡 [새로 추가된 기능] 엑셀 뷰와 리스트 뷰 탭 분리
+    tab1, tab2 = st.tabs(["📊 엑셀(표) 형태로 보기", "📝 리스트(카드) 형태로 보기"])
+    
+    with tab1:
+        st.dataframe(filtered_df, use_container_width=True)
+        
+    with tab2:
+        if len(filtered_df) == 0:
+            st.info("조건에 맞는 상품이 없습니다.")
+        else:
+            for idx, row in filtered_df.iterrows():
+                def get_val(col_name):
+                    v = str(row.get(col_name, "-"))
+                    return "-" if v.lower() == "nan" or v == "" else v
+                
+                prod_name = get_val("상품명")
+                currency = get_val("통화")
+                assets = get_val("기초자산")
+                ki = get_val("낙인(KI)")
+                maturity = get_val("만기")
+                cycle = get_val("조기상환주기")
+                barrier = get_val("조기상환배리어")
+                
+                # 1. 수익률 추출
+                yield_val = "-"
+                for c in row.index:
+                    if "수익" in str(c):
+                        v = str(row[c])
+                        if v.lower() != "nan" and v != "":
+                            yield_val = f"{v}%" if v.replace('.','',1).isdigit() else v
+                        break
+                if yield_val == "-":
+                    m = re.search(r"(?:연\s*|)([\d\.]+)%", prod_name)
+                    if m: yield_val = f"연 {m.group(1)}%"
+                        
+                # 2. 청약기간(시작~종료) 조합
+                start_date = ""
+                end_date = ""
+                for c in row.index:
+                    if "청약" in str(c) and "시작" in str(c):
+                        v = str(row[c]).split(' ')[0]
+                        if v.lower() != "nan": start_date = v
+                    elif "청약" in str(c) and "종료" in str(c):
+                        v = str(row[c]).split(' ')[0]
+                        if v.lower() != "nan": end_date = v
+                        
+                if start_date and end_date:
+                    sub_period = f"{start_date} ~ {end_date}"
+                else:
+                    sub_period = "-"
+                    for c in row.index:
+                        if "청약" in str(c) and "기간" in str(c):
+                            v = str(row[c])
+                            if v.lower() != "nan" and v != "": sub_period = v
+                            break
+
+                # 3. 카드 형태로 예쁘게 화면에 출력
+                st.markdown(f'''
+                
+                    {prod_name}
+                    
+                        통화: {currency} 
+                        기초자산: {assets} 
+                        낙인(KI): {ki} 
+                        수익율: {yield_val} 
+                        청약기간: {sub_period} 
+                        만기: {maturity} 
+                        조기상환주기: {cycle} 
+                        조기상환배리어: {barrier}
+                    
+                
+                ''', unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"오류가 발생했습니다: {e}")
