@@ -61,39 +61,35 @@ def automate_download():
         
         for i in range(60):
             time.sleep(2)
-            
             if i % 5 == 0:
                 try: driver.execute_script("arguments[0].click();", btn)
                 except: pass
-            
             files = glob.glob(os.path.join(DOWNLOAD_DIR, "*.*"))
-            excel_files = [f for f in files if f.endswith('.xls') or f.endswith('.xlsx')]
+            excel_files = [f for f in files if f.endswith(".xls") or f.endswith(".xlsx")]
             if excel_files:
                 time.sleep(2)
                 return excel_files[0]
-                
         folder_contents = os.listdir(DOWNLOAD_DIR)
         raise Exception(f"엑셀 다운로드 실패. 폴더 내부 상태: {folder_contents}")
-        
     finally:
         driver.quit()
 
 def parse_kofia_file(file_path):
-    raw_df = pd.read_excel(file_path, engine='xlrd')
+    raw_df = pd.read_excel(file_path, engine="xlrd")
     raw_df.columns = raw_df.columns.astype(str)
     
     asset_col_idx = None
     prod_col_idx = None
     for j in range(len(raw_df.columns)):
-        if '기초자산' in str(raw_df.columns[j]):
+        if "기초자산" in str(raw_df.columns[j]):
             asset_col_idx = j
-        if '상품명' in str(raw_df.columns[j]):
+        if "상품명" in str(raw_df.columns[j]):
             prod_col_idx = j
 
     if asset_col_idx is None:
         for i in range(min(15, len(raw_df))):
             for j in range(len(raw_df.columns)):
-                if '기초자산' in str(raw_df.iloc[i, j]):
+                if "기초자산" in str(raw_df.iloc[i, j]):
                     asset_col_idx = j
                     break
             if asset_col_idx is not None:
@@ -105,7 +101,7 @@ def parse_kofia_file(file_path):
     cycle_list = []    
     maturity_list = [] 
     
-    index_keywords = ['INDEX', '지수', 'KOSPI', 'S&P', 'EURO', 'HSCEI', 'NIKKEI', 'STOXX', 'NIFTY', 'CSI', 'KRX', '코스피', '다우', '나스닥', 'DOW', 'NASDAQ', 'NDX', '항셍']
+    index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "나스닥", "DOW", "NASDAQ", "NDX", "항셍"]
     
     for i, row in raw_df.iterrows():
         row_text = " ".join(str(x) for x in row.values)
@@ -113,12 +109,13 @@ def parse_kofia_file(file_path):
         if row_text is None:
             m1 = None
         else:
-            m1 = re.search(r'(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})', str(row_text), re.IGNORECASE)
-        m2 = re.search(r'(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)', str(row_text), re.IGNORECASE)
-        m3 = re.search(r'-\s*\d{2,3}\s*/\s*(\d{2,3})', str(row_text))
-        m4 = re.search(r'(\d{2,3})%-\(', str(row_text))
-        m5 = re.search(r'월지급\s*(?:배리어|베리어)?\s*(\d{2,3})', str(row_text))
-        no_ki_match = re.search(r'(?:No\s*KI|노낙인|노녹인|No\s*Knock[\s\-]*in|KI\s*없음|낙인\s*없음|녹인\s*없음|K/I\s*없음)', str(row_text), re.IGNORECASE)
+            m1 = re.search(r"(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})", str(row_text), re.IGNORECASE)
+        
+        m2 = re.search(r"(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)", str(row_text), re.IGNORECASE)
+        m3 = re.search(r"-\s*\d{2,3}\s*/\s*(\d{2,3})", str(row_text))
+        m4 = re.search(r"(\d{2,3})%-\(", str(row_text))
+        m5 = re.search(r"월지급\s*(?:배리어|베리어)?\s*(\d{2,3})", str(row_text))
+        no_ki_match = re.search(r"(?:No\s*KI|노낙인|노녹인|No\s*Knock[\s\-]*in|KI\s*없음|낙인\s*없음|녹인\s*없음|K/I\s*없음)", str(row_text), re.IGNORECASE)
         
         if m1: ki_list.append(m1.group(1))
         elif m2: ki_list.append(m2.group(1))
@@ -130,11 +127,11 @@ def parse_kofia_file(file_path):
         
         if asset_col_idx is not None:
             asset_val = str(row.iloc[asset_col_idx])
-            if '기초자산' in asset_val or asset_val.strip() == 'nan' or asset_val.strip() == '':
+            if "기초자산" in asset_val or asset_val.strip() == "nan" or asset_val.strip() == "":
                 type_list.append("-")
             else:
-                clean_asset = asset_val.upper().replace('', ',').replace('\n', ',').replace('/', ',')
-                assets = [a.strip() for a in clean_asset.split(',') if a.strip()]
+                clean_asset = asset_val.upper().replace("", ",").replace("\n", ",").replace("/", ",")
+                assets = [a.strip() for a in clean_asset.split(",") if a.strip()]
                 has_index = False
                 has_stock = False
                 for asset in assets:
@@ -149,17 +146,17 @@ def parse_kofia_file(file_path):
         else:
             type_list.append("-")
             
-        clean_text = re.sub(r'\([A-Za-z0-9]+\)', '', str(row_text))
-        m_barrier = re.search(r'(\d{2,3}(?:[-\/]\d{2,3}){2,})', clean_text)
+        clean_text = re.sub(r"\([A-Za-z0-9]+\)", "", str(row_text))
+        m_barrier = re.search(r"(\d{2,3}(?:[-\/]\d{2,3}){2,})", clean_text)
         if m_barrier: 
-            barrier_list.append(m_barrier.group(1).replace('/', '-'))
+            barrier_list.append(m_barrier.group(1).replace("/", "-"))
         else: 
             barrier_list.append("-")
             
-        m_maturity = re.search(r'(\d+(?:\.\d+)?)\s*(년|y)', str(row_text), re.IGNORECASE)
+        m_maturity = re.search(r"(\d+(?:\.\d+)?)\s*(년|y)", str(row_text), re.IGNORECASE)
         if m_maturity: 
             maturity_list.append(m_maturity.group(1) + "년")
         else: 
             maturity_list.append("-")
 
-        m_cycle = re.search(r'(?
+        m_cycle = re.search(r"(?
