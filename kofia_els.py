@@ -27,12 +27,14 @@ def automate_download():
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
 
-    if platform.system() == "Linux":
-        DOWNLOAD_DIR = "/tmp/els_downloads"
-    else:
-        DOWNLOAD_DIR = os.path.join(os.getcwd(), "downloads")
-        
+    # 💡 [해결책] /tmp 가상 폴더 대신, 스트림릿 앱이 실행 중인 진짜 폴더의 절대경로를 씁니다.
+    DOWNLOAD_DIR = os.path.abspath(os.path.join(os.getcwd(), "downloads"))
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    
+    # 💡 [충돌 방지] 기존에 다운로드 폴더에 남아있던 찌꺼기 파일들 싹 청소하기
+    for f in glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")):
+        try: os.remove(f)
+        except: pass
 
     options = Options()
     options.add_argument("--headless=new")
@@ -60,67 +62,45 @@ def automate_download():
     driver = webdriver.Chrome(service=service, options=options)
     
     try:
-        try:
-            driver.execute_cdp_cmd("Browser.setDownloadBehavior", {
-                "behavior": "allow",
-                "downloadPath": DOWNLOAD_DIR,
-                "eventsEnabled": True
-            })
-        except:
-            pass
-            
+        # 💡 [강제 권한] 컨테이너 환경에서 지정된 절대경로로 다운로드를 뚫어버립니다.
         driver.execute_cdp_cmd("Page.setDownloadBehavior", {
             "behavior": "allow",
             "downloadPath": DOWNLOAD_DIR
         })
         
-        existing_files = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")))
-        
         driver.get("https://dis.kofia.or.kr/websquare/index.jsp?w2xPath=/wq/etcann/DISDLSSubscribing.xml&divisionId=MDIS04007001000000&serviceId=SDIS04007001000")
         wait = WebDriverWait(driver, 30)
         
+        # 표의 뼈대가 나타날 때까지 대기
         wait.until(EC.presence_of_element_located((By.XPATH, "//table[contains(@id, 'body_table')]")))
         time.sleep(10)
         
+        # 엑셀 버튼 찾기
         target_xpath = "/html/body/div[1]/div[2]/div/div[2]/div[3]/div/div[1]/div[2]/a[1]"
-        btn = wait.until(EC.element_to_be_clickable((By.XPATH, target_xpath)))
+        btn = wait.until(EC.presence_of_element_located((By.XPATH, target_xpath)))
+        
+        # 최초 1회 클릭
         driver.execute_script("arguments[0].click();", btn)
         
         for i in range(60):
             time.sleep(2)
             
-            # 💡 [진단 1] 금융투자협회 사이트에서 경고창(IP 차단, 데이터 없음 등)을 띄웠는지 실시간 감시
-            try:
-                alert = driver.switch_to.alert
-                alert_msg = alert.text
-                alert.accept()
-                raise Exception(f"🚨 KOFIA 사이트 경고창 발생: {alert_msg}")
-            except Exception as e:
-                if "🚨" in str(e):
-                    raise e
-                pass
+            # 💡 [안전장치] 클릭이 무시되었을 경우를 대비해 10초마다 끈질기게 엑셀 버튼을 다시 찌릅니다.
+            if i % 5 == 0:
+                try: driver.execute_script("arguments[0].click();", btn)
+                except: pass
             
-            # 💡 [진단 2] 15초가 지나도 반응이 없으면, 위치가 틀어진 것으로 간주하고 엑셀 모양 아이콘을 직접 찾아서 클릭
-            if i == 15:
-                try:
-                    excel_img = driver.find_element(By.XPATH, "//img[contains(@src, 'excel') or contains(@alt, '엑셀')]")
-                    driver.execute_script("arguments[0].click();", excel_img)
-                except:
-                    try: driver.execute_script("arguments[0].click();", btn)
-                    except: pass
+            files = glob.glob(os.path.join(DOWNLOAD_DIR, "*.*"))
             
-            current_files = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")))
-            new_files = current_files - existing_files
-            
-            valid_new_files = [f for f in new_files if not f.endswith('.tmp') and not f.endswith('.crdownload')]
-            
-            if valid_new_files:
-                excel_files = [f for f in valid_new_files if f.endswith('.xls') or f.endswith('.xlsx')]
-                if excel_files:
-                    time.sleep(2) 
-                    return excel_files[0]
-        
-        raise Exception("다운로드된 새 엑셀 파일을 찾을 수 없습니다. (대기 시간 초과)")
+            # 엑셀 파일이 정상적으로 생겼다면 즉시 성공 반환!
+            excel_files = [f for f in files if f.endswith('.xls') or f.endswith('.xlsx')]
+            if excel_files:
+                time.sleep(2)
+                return excel_files[0]
+                
+        # 실패할 경우 폴더 안에 임시 파일이라도 생겼는지 추적합니다.
+        folder_contents = os.listdir(DOWNLOAD_DIR)
+        raise Exception(f"엑셀 다운로드 실패. 폴더 내부 상태: {folder_contents}")
         
     finally:
         driver.quit()
