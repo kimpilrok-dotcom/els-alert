@@ -100,12 +100,19 @@ def parse_kofia_file(file_path):
     barrier_list = []  
     cycle_list = []    
     maturity_list = [] 
+    currency_list = [] # 💡 USD/KRW 구분을 위한 리스트 추가
     
     index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "나스닥", "DOW", "NASDAQ", "NDX", "항셍"]
     
     for i, row in raw_df.iterrows():
         row_text = " ".join(str(x) for x in row.values)
         
+        # 💡 통화 구분: 줄 텍스트 전체에서 USD나 달러 글자가 있으면 USD로 판별
+        if re.search(r"USD|달러", str(row_text), re.IGNORECASE):
+            currency_list.append("USD")
+        else:
+            currency_list.append("KRW")
+
         if row_text is None:
             m1 = None
         else:
@@ -149,10 +156,8 @@ def parse_kofia_file(file_path):
             type_list.append("-")
             
         clean_text = re.sub(r"\([A-Za-z0-9]+\)", "", str(row_text))
-        # 💡 수정 포인트: 하이픈(-), 슬래시(/) 외에 콤마(,)와 띄어쓰기가 포함된 배열도 찾도록 패턴 강화
         m_barrier = re.search(r"(\d{2,3}(?:[-\/,]\s*\d{2,3}){2,})", clean_text)
         if m_barrier: 
-            # 찾은 결과에서 슬래시(/), 콤마(,), 공백을 모두 하이픈(-)으로 통일
             cleaned_barrier = m_barrier.group(1).replace("/", "-").replace(",", "-").replace(" ", "")
             barrier_list.append(cleaned_barrier)
         else: 
@@ -170,6 +175,8 @@ def parse_kofia_file(file_path):
         else: 
             cycle_list.append("-")
             
+    # 💡 추출한 데이터를 표의 맨 앞에 끼워 넣습니다.
+    raw_df.insert(0, "통화", currency_list)
     raw_df.insert(0, "조기상환주기", cycle_list)
     raw_df.insert(0, "만기", maturity_list)
     raw_df.insert(0, "조기상환배리어", barrier_list)
