@@ -149,9 +149,12 @@ def parse_kofia_file(file_path):
             type_list.append("-")
             
         clean_text = re.sub(r"\([A-Za-z0-9]+\)", "", str(row_text))
-        m_barrier = re.search(r"(\d{2,3}(?:[-\/]\d{2,3}){2,})", clean_text)
+        # 💡 수정 포인트: 하이픈(-), 슬래시(/) 외에 콤마(,)와 띄어쓰기가 포함된 배열도 찾도록 패턴 강화
+        m_barrier = re.search(r"(\d{2,3}(?:[-\/,]\s*\d{2,3}){2,})", clean_text)
         if m_barrier: 
-            barrier_list.append(m_barrier.group(1).replace("/", "-"))
+            # 찾은 결과에서 슬래시(/), 콤마(,), 공백을 모두 하이픈(-)으로 통일
+            cleaned_barrier = m_barrier.group(1).replace("/", "-").replace(",", "-").replace(" ", "")
+            barrier_list.append(cleaned_barrier)
         else: 
             barrier_list.append("-")
             
@@ -161,7 +164,6 @@ def parse_kofia_file(file_path):
         else: 
             maturity_list.append("-")
 
-        # 💡 수정 포인트: "단위" 글자가 붙어 있어도 정상적으로 숫자를 가져오도록 제한을 풀었습니다.
         m_cycle = re.search(r"(?:^|[^0-9\.])(\d+)\s*(개월|m)", str(row_text), re.IGNORECASE)
         if m_cycle: 
             cycle_list.append(m_cycle.group(1) + "개월")
