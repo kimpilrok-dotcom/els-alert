@@ -27,7 +27,12 @@ def automate_download():
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
 
-    DOWNLOAD_DIR = os.path.join(os.getcwd(), "downloads")
+    # 💡 [핵심 수정 1] 클라우드(리눅스) 서버는 보안상 /tmp 폴더에만 파일 저장이 가능합니다.
+    if platform.system() == "Linux":
+        DOWNLOAD_DIR = "/tmp/els_downloads"
+    else:
+        DOWNLOAD_DIR = os.path.join(os.getcwd(), "downloads")
+        
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
     options = Options()
@@ -36,8 +41,6 @@ def automate_download():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    
-    # 💡 [추가1] 봇으로 의심받지 않도록 일반 윈도우 크롬 브라우저인 척 위장합니다!
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
     prefs = {
@@ -45,11 +48,10 @@ def automate_download():
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
         "safebrowsing.enabled": True,
-        "profile.default_content_settings.popups": 0 # 💡 [추가2] 팝업 차단 해제
+        "profile.default_content_settings.popups": 0
     }
     options.add_experimental_option("prefs", prefs)
     
-    # 💡 [핵심 추가] 클라우드(리눅스) 환경과 내 PC(윈도우) 환경을 자동으로 구분합니다!
     if platform.system() == "Linux":
         options.binary_location = "/usr/bin/chromium"
         service = Service("/usr/bin/chromedriver")
@@ -59,6 +61,16 @@ def automate_download():
     driver = webdriver.Chrome(service=service, options=options)
     
     try:
+        # 💡 [핵심 수정 2] 최신 헤드리스 크롬에서도 무조건 다운로드를 허용하도록 권한 명령어를 2중으로 걸어줍니다.
+        try:
+            driver.execute_cdp_cmd("Browser.setDownloadBehavior", {
+                "behavior": "allow",
+                "downloadPath": DOWNLOAD_DIR,
+                "eventsEnabled": True
+            })
+        except:
+            pass
+            
         driver.execute_cdp_cmd("Page.setDownloadBehavior", {
             "behavior": "allow",
             "downloadPath": DOWNLOAD_DIR
@@ -69,23 +81,17 @@ def automate_download():
         driver.get("https://dis.kofia.or.kr/websquare/index.jsp?w2xPath=/wq/etcann/DISDLSSubscribing.xml&divisionId=MDIS04007001000000&serviceId=SDIS04007001000")
         wait = WebDriverWait(driver, 30)
         
-        # 표의 뼈대가 나타날 때까지 대기
         wait.until(EC.presence_of_element_located((By.XPATH, "//table[contains(@id, 'body_table')]")))
-        
-        # 💡 [추가3 핵심] 표 안에 실제 데이터가 완전히 채워질 때까지 무조건 10초를 넉넉히 기다립니다.
         time.sleep(10)
         
-        # 💡 [추가4] 이미지(img) 태그 말고, 클릭 이벤트가 직접 걸려있는 링크(a) 태그를 직접 찌릅니다.
         target_xpath = "/html/body/div[1]/div[2]/div/div[2]/div[3]/div/div[1]/div[2]/a[1]"
         btn = wait.until(EC.element_to_be_clickable((By.XPATH, target_xpath)))
         
         driver.execute_script("arguments[0].click();", btn)
         
-        # 다운로드가 완료될 때까지 체크 (최대 120초)
         for i in range(60):
             time.sleep(2)
             
-            # 💡 [추가5 안전장치] 30초가 지나도 반응이 없으면 버튼을 한 번 더 누릅니다. (혹시 클릭이 씹혔을까봐)
             if i == 15:
                 try:
                     driver.execute_script("arguments[0].click();", btn)
