@@ -80,13 +80,20 @@ try:
                 all_assets.extend(parts)
         
         unique_assets = list(set([a for a in all_assets if a]))
-        index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "나스닥", "DOW", "NASDAQ", "NDX", "항셍"]
+        
+        # 💡 UI 필터 정렬 로직에도 개선된 지수 판별 로직 적용
+        index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "DOW", "NDX", "항셍", "NASDAQ100", "나스닥100", "NASDAQ 100", "나스닥 100"]
         
         indices = []
         stocks = []
         for a in unique_assets:
-            if any(k.upper() in a.upper() for k in index_keywords): indices.append(a)
-            else: stocks.append(a)
+            a_upper = a.upper()
+            if re.search(r'\((NASDAQ|NYSE|나스닥|뉴욕|NY|AMEX)[^)]*\)', a_upper):
+                stocks.append(a)
+            elif any(k in a_upper for k in index_keywords): 
+                indices.append(a)
+            else: 
+                stocks.append(a)
                 
         asset_options = sorted(indices) + sorted(stocks)
         selected_assets = st.sidebar.multiselect("🔎 기초자산 (지수형 먼저 표시)", asset_options)
@@ -94,7 +101,6 @@ try:
             mask = filtered_df["기초자산"].astype(str).apply(lambda x: any(sel in x for sel in selected_assets))
             filtered_df = filtered_df[mask]
 
-    # 💡 [수정된 정렬 기능] '노낙인', '낙인없음', '-' 기호는 무조건 밑으로 가도록 9999로 처리
     def get_sort_ki(ki_str):
         val = str(ki_str).strip()
         if "노낙인" in val or "없음" in val or val == "-": 
@@ -118,7 +124,6 @@ try:
     filtered_df['sort_ki'] = filtered_df['낙인(KI)'].apply(get_sort_ki)
     filtered_df['sort_yield'] = filtered_df.apply(get_sort_yield, axis=1)
     
-    # sort_ki(낙인)는 오름차순(낮은 것부터), sort_yield(수익률)는 내림차순(높은 것부터) 정렬
     filtered_df = filtered_df.sort_values(by=['sort_ki', 'sort_yield'], ascending=[True, False])
     filtered_df = filtered_df.drop(columns=['sort_ki', 'sort_yield'])
 
