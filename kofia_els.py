@@ -133,8 +133,7 @@ def parse_kofia_file(file_path):
             if '기초자산' in asset_val or asset_val.strip() == 'nan' or asset_val.strip() == '':
                 type_list.append("-")
             else:
-                clean_asset = asset_val.upper().replace('
-', ',').replace('\n', ',').replace('/', ',')
+                clean_asset = asset_val.upper().replace('', ',').replace('\n', ',').replace('/', ',')
                 assets = [a.strip() for a in clean_asset.split(',') if a.strip()]
                 has_index = False
                 has_stock = False
