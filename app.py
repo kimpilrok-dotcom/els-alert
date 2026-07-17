@@ -61,7 +61,7 @@ try:
             filtered_df = filtered_df[filtered_df['기초자산'].astype(str).str.contains(search_asset, na=False, case=False)]
 
     st.subheader(f"총 {len(filtered_df)}개의 ELS 상품이 검색되었습니다.")
-    filtered_df = filtered_df.drop(columns=["신용등급", "선택"], errors="ignore")
+    filtered_df = filtered_df.drop(columns=["신용등급", "선택","사이드링크","홈페이지","간이투자설명서"], errors="ignore")
     st.dataframe(filtered_df, use_container_width=True)
 
 except Exception as e:
