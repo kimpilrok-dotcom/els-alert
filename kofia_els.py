@@ -130,7 +130,10 @@ def parse_kofia_file(file_path):
             if "기초자산" in asset_val or asset_val.strip() == "nan" or asset_val.strip() == "":
                 type_list.append("-")
             else:
-                clean_asset = asset_val.upper().replace("", ",").replace("\n", ",").replace("/", ",")
+                # 💡 에러 원인 1 제거: <BR/> 기호를 우회 코드로 변경했습니다.
+                tag_br = chr(60) + "BR/" + chr(62)
+                clean_asset = asset_val.upper().replace(tag_br, ",").replace("\n", ",").replace("/", ",")
+                
                 assets = [a.strip() for a in clean_asset.split(",") if a.strip()]
                 has_index = False
                 has_stock = False
@@ -159,4 +162,17 @@ def parse_kofia_file(file_path):
         else: 
             maturity_list.append("-")
 
-        m_cycle = re.search(r"(?
+        # 💡 에러 원인 2 제거: 짤림을 유발하던 부등호 로직을 부등호 없는 정규식으로 안전하게 대체했습니다.
+        m_cycle = re.search(r"(?:^|[^0-9\.])(\d+)\s*(개월|m)(?!\w)", str(row_text), re.IGNORECASE)
+        if m_cycle: 
+            cycle_list.append(m_cycle.group(1) + "개월")
+        else: 
+            cycle_list.append("-")
+            
+    raw_df.insert(0, "조기상환주기", cycle_list)
+    raw_df.insert(0, "만기", maturity_list)
+    raw_df.insert(0, "조기상환배리어", barrier_list)
+    raw_df.insert(0, "유형", type_list)
+    raw_df.insert(0, "낙인(KI)", ki_list)
+    
+    return raw_df
