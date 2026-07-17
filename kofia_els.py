@@ -140,6 +140,9 @@ def parse_kofia_file(file_path):
         row_text = " ".join(str(x) for x in row.values)
         
         # --- 1) 낙인(KI) 추출 ---
+    if row_text is None:
+        m1 = None
+    else:
         m1 = re.search(r'(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})', str(row_text), re.IGNORECASE)
         m2 = re.search(r'(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)', row_text, re.IGNORECASE)
         m3 = re.search(r'-\s*\d{2,3}\s*/\s*(\d{2,3})', row_text)
