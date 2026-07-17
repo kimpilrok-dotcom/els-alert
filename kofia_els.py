@@ -100,14 +100,14 @@ def parse_kofia_file(file_path):
     barrier_list = []  
     cycle_list = []    
     maturity_list = [] 
-    currency_list = [] # 💡 USD/KRW 구분을 위한 리스트 추가
+    currency_list = []
     
-    index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "나스닥", "DOW", "NASDAQ", "NDX", "항셍"]
+    # 💡 지수 키워드에서 단순 '나스닥', 'NASDAQ'을 빼고 정확한 지수명(100)으로 교체
+    index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "DOW", "NDX", "항셍", "NASDAQ100", "나스닥100", "NASDAQ 100", "나스닥 100"]
     
     for i, row in raw_df.iterrows():
         row_text = " ".join(str(x) for x in row.values)
         
-        # 💡 통화 구분: 줄 텍스트 전체에서 USD나 달러 글자가 있으면 USD로 판별
         if re.search(r"USD|달러", str(row_text), re.IGNORECASE):
             currency_list.append("USD")
         else:
@@ -143,11 +143,17 @@ def parse_kofia_file(file_path):
                 assets = [a.strip() for a in clean_asset.split(",") if a.strip()]
                 has_index = False
                 has_stock = False
+                
                 for asset in assets:
-                    if any(k in asset for k in index_keywords):
+                    a_upper = asset.upper()
+                    # 💡 괄호 안에 나스닥이나 뉴욕 증시가 적혀있으면 100% 종목형으로 분류
+                    if re.search(r'\((NASDAQ|NYSE|나스닥|뉴욕|NY|AMEX)[^)]*\)', a_upper):
+                        has_stock = True
+                    elif any(k in a_upper for k in index_keywords):
                         has_index = True
                     else:
                         has_stock = True
+                        
                 if has_index and has_stock: type_list.append("혼합형")
                 elif has_index: type_list.append("지수형")
                 elif has_stock: type_list.append("종목형")
@@ -169,13 +175,13 @@ def parse_kofia_file(file_path):
         else: 
             maturity_list.append("-")
 
-        m_cycle = re.search(r"(?:^|[^0-9\.])(\d+)\s*(개월|m)", str(row_text), re.IGNORECASE)
+        # 💡 조기상환주기 에러 픽스: 무조건 '1자리~3자리 숫자'만 가져오도록 정규식 수정
+        m_cycle = re.search(r"(?:^|[^0-9\.])(\d{1,3})\s*(개월|m)", str(row_text), re.IGNORECASE)
         if m_cycle: 
             cycle_list.append(m_cycle.group(1) + "개월")
         else: 
             cycle_list.append("-")
             
-    # 💡 추출한 데이터를 표의 맨 앞에 끼워 넣습니다.
     raw_df.insert(0, "통화", currency_list)
     raw_df.insert(0, "조기상환주기", cycle_list)
     raw_df.insert(0, "만기", maturity_list)
