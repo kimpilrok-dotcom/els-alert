@@ -140,7 +140,7 @@ def parse_kofia_file(file_path):
     type_list = []
     barrier_list = []  
     cycle_list = []    
-    maturity_list = [] # 💡 새로 추가된 '만기' 저장소
+    maturity_list = [] 
     
     index_keywords = ['INDEX', '지수', 'KOSPI', 'S&P', 'EURO', 'HSCEI', 'NIKKEI', 'STOXX', 'NIFTY', 'CSI', 'KRX', '코스피', '다우', '나스닥', 'DOW', 'NASDAQ', 'NDX', '항셍']
     
@@ -172,7 +172,8 @@ def parse_kofia_file(file_path):
             if '기초자산' in asset_val or asset_val.strip() == 'nan' or asset_val.strip() == '':
                 type_list.append("-")
             else:
-                clean_asset = asset_val.upper().replace('<BR/>', ',').replace('\n', ',').replace('/', ',')
+                clean_asset = asset_val.upper().replace('
+', ',').replace('\n', ',').replace('/', ',')
                 assets = [a.strip() for a in clean_asset.split(',') if a.strip()]
                 has_index = False
                 has_stock = False
@@ -188,31 +189,25 @@ def parse_kofia_file(file_path):
         else:
             type_list.append("-")
             
-        # --- 💡 3) 배리어, 만기, 주기 추출 (정확히 분리) ---
+        # --- 💡 3) 배리어, 만기, 주기 추출 (정밀 타격) ---
         
-        # 배리어 찾기 (예: 95-90-85)
-        m_barrier = re.search(r'(\d{2,3}(?:[-\/]\d{2,3}){2,})', str(row_text))
-        if m_barrier: barrier_list.append(m_barrier.group(1))
-        else: barrier_list.append("-")
+        # 배리어 찾기: 괄호(예: L50) 무시하고 연결
+        clean_text = re.sub(r'\([A-Za-z0-9]+\)', '', str(row_text))
+        m_barrier = re.search(r'(\d{2,3}(?:[-\/]\d{2,3}){2,})', clean_text)
+        if m_barrier: 
+            barrier_list.append(m_barrier.group(1).replace('/', '-'))
+        else: 
+            barrier_list.append("-")
             
-        # 만기 찾기 (예: 1년, 1.5년, 3년)
-        m_maturity = re.search(r'(\d+(?:\.\d+)?년)', str(row_text))
-        if m_maturity: maturity_list.append(m_maturity.group(1))
-        else: maturity_list.append("-")
+        # 만기 찾기: 년, y 모두 감지
+        m_maturity = re.search(r'(\d+(?:\.\d+)?)\s*(년|y)', str(row_text), re.IGNORECASE)
+        if m_maturity: 
+            maturity_list.append(m_maturity.group(1) + "년")
+        else: 
+            maturity_list.append("-")
 
-        # 주기 찾기 (예: 3개월, 4개월, 6개월)
-        m_cycle = re.search(r'(\d+개월)', str(row_text))
-        if m_cycle: cycle_list.append(m_cycle.group(1))
-        else: cycle_list.append("-")
-            
-    # 3. 맨 앞에 열 5개 추가 (역순 삽입)
-    raw_df.insert(0, '조기상환주기', cycle_list)
-    raw_df.insert(0, '만기', maturity_list)
-    raw_df.insert(0, '조기상환배리어', barrier_list)
-    raw_df.insert(0, '유형', type_list)
-    raw_df.insert(0, '낙인(KI)', ki_list)
-    
-    return raw_df
+        # 주기 찾기: 개월, m 모두 감지
+        m_cycle = re.search(r'(?
 
 # ==========================================
 # ⬇️ 수정된 필터링 함수 (기존 함수 덮어쓰기) ⬇️
