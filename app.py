@@ -27,7 +27,7 @@ try:
             filtered_df = filtered_df[filtered_df['유형'].isin(selected_types)]
 
     if '낙인(KI)' in raw_df.columns:
-        ki_options = [k for k in raw_df['낙인(KI)'].unique() if k != "-"]
+        ki_options = sorted([k for k in raw_df['낙인(KI)'].unique() if k != "-"])
         selected_ki = st.sidebar.multiselect("🛡️ 낙인(KI) 조건", ki_options)
         if selected_ki:
             filtered_df = filtered_df[filtered_df['낙인(KI)'].isin(selected_ki)]
@@ -37,6 +37,14 @@ try:
         if search_barrier:
             filtered_df = filtered_df[filtered_df['조기상환배리어'].astype(str).str.contains(search_barrier, na=False, case=False)]
 
+    # 💡 만기 필터 추가
+    if '만기' in raw_df.columns:
+        maturity_options = sorted([m for m in raw_df['만기'].unique() if m != "-"])
+        selected_maturity = st.sidebar.multiselect("🗓️ 만기", maturity_options)
+        if selected_maturity:
+            filtered_df = filtered_df[filtered_df['만기'].isin(selected_maturity)]
+
+    # 💡 조기상환주기 필터
     if '조기상환주기' in raw_df.columns:
         cycle_options = sorted([c for c in raw_df['조기상환주기'].unique() if c != "-"])
         selected_cycle = st.sidebar.multiselect("⏳ 조기상환주기", cycle_options)
