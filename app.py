@@ -4,6 +4,7 @@ import re
 import yfinance as yf
 import plotly.graph_objects as go
 from kofia_els import automate_download, parse_kofia_file
+import numpy as np
 
 st.set_page_config(page_title="나만의 ELS 검색기", page_icon="🎯", layout="wide")
 st.title("🎯 나만의 맞춤형 ELS/DLS 검색기")
@@ -98,7 +99,7 @@ try:
 
     st.subheader(f"총 {len(filtered_df)}개의 ELS 상품이 검색되었습니다.")
     
-    tab1, tab2, tab3 = st.tabs(["📊 엑셀(표) 형태로 보기", "📝 리스트(카드) 형태로 보기", "📈 기초자산 낙인(KI) 시뮬레이터"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 엑셀(표)", "📝 리스트(카드)", "📈 낙인 시뮬레이터", "🧪 과거 10년 롤링 백테스트"])
     
     with tab1:
         st.dataframe(filtered_df, use_container_width=True)
@@ -179,10 +180,9 @@ try:
         
         col1, col2 = st.columns(2)
         with col1:
-            selected_sim_asset = st.selectbox("분석할 대표 지수 선택", list(TICKER_MAP.keys()))
+            selected_sim_asset = st.selectbox("분석할 대표 지수 선택", list(TICKER_MAP.keys()), key="sim_asset")
         with col2:
-            # 💡 [수정됨] 최소값을 15로 변경
-            ki_level = st.slider("가상 낙인(KI) 조건 설정 (%)", min_value=15, max_value=70, value=45, step=5)
+            ki_level = st.slider("가상 낙인(KI) 조건 설정 (%)", min_value=15, max_value=70, value=45, step=5, key="sim_ki")
             
         ticker_symbol = TICKER_MAP[selected_sim_asset]
         
@@ -198,43 +198,114 @@ try:
                     current_price = float(hist['Close'].iloc[-1])
                     ki_price = current_price * (ki_level / 100.0)
                     
-                    # 💡 [추가됨] 그래프 위에 큼직한 숫자로 지수 표시
                     metric_col1, metric_col2 = st.columns(2)
                     metric_col1.metric(label=f"📊 {selected_sim_asset} 현재 지수", value=f"{current_price:,.2f}")
                     metric_col2.metric(label=f"🚨 가상 낙인선 ({ki_level}%)", value=f"{ki_price:,.2f}")
                     
                     fig = go.Figure()
-                    
                     fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name='현재가 흐름', line=dict(color='#1E3A8A', width=1.5)))
                     fig.add_trace(go.Scatter(x=[hist.index[0], hist.index[-1]], y=[ki_price, ki_price], mode='lines', name=f'위험선 ({ki_level}%)', line=dict(color='#DC2626', width=2, dash='dash')))
                     
-                    # 💡 [추가됨] 그래프의 선 끝부분(오른쪽)에 가격 태그 부착
-                    fig.add_annotation(
-                        x=hist.index[-1], y=current_price,
-                        text=f"{current_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0,
-                        font=dict(color="#1E3A8A", size=13), bgcolor="white", bordercolor="#1E3A8A"
-                    )
-                    fig.add_annotation(
-                        x=hist.index[-1], y=ki_price,
-                        text=f"{ki_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0,
-                        font=dict(color="#DC2626", size=13), bgcolor="white", bordercolor="#DC2626"
-                    )
+                    fig.add_annotation(x=hist.index[-1], y=current_price, text=f"{current_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0, font=dict(color="#1E3A8A", size=13), bgcolor="white", bordercolor="#1E3A8A")
+                    fig.add_annotation(x=hist.index[-1], y=ki_price, text=f"{ki_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0, font=dict(color="#DC2626", size=13), bgcolor="white", bordercolor="#DC2626")
                     
-                    fig.update_layout(
-                        xaxis_title="연도",
-                        yaxis_title="지수 포인트",
-                        hovermode="x unified",
-                        showlegend=False, # 화면을 더 깔끔하게 쓰기 위해 범례 숨김
-                        margin=dict(l=20, r=80, t=30, b=20) # 오른쪽 여백을 넓혀 숫자가 잘 안 잘리게 함
-                    )
-                    
+                    fig.update_layout(xaxis_title="연도", yaxis_title="지수 포인트", hovermode="x unified", showlegend=False, margin=dict(l=20, r=80, t=30, b=20))
                     st.plotly_chart(fig, use_container_width=True)
-                    
-                    st.info("💡 과거 10년 동안 위 그래프의 **빨간 점선(낙인선)** 밑으로 지수가 떨어진 적이 몇 번이나 있었는지 시각적으로 체크해 보세요.")
                 else:
-                    st.warning("데이터를 불러올 수 없습니다. 일시적인 야후 파이낸스 서버 오류일 수 있습니다.")
+                    st.warning("데이터를 불러올 수 없습니다.")
             except Exception as e:
-                st.error(f"데이터를 불러오는 데 실패했습니다: {e}")
+                st.error(f"오류: {e}")
+
+    # 💡 [새로 추가된 기능] 롤링 윈도우 백테스트
+    with tab4:
+        st.markdown("#### 🧪 기초자산 낙인(KI) 확률 백테스트 (Rolling Window)")
+        st.markdown("과거 매 거래일마다 ELS(만기 3년)에 가입했다고 가정할 때, 3년 내에 낙인을 터치했을 확률을 계산합니다.")
+        
+        TICKER_MAP = {
+            "S&P500": "^GSPC",
+            "EUROSTOXX50": "^STOXX50E",
+            "KOSPI200": "^KS200",
+            "NIKKEI225": "^N225",
+            "HSCEI": "^HSCE",
+            "NASDAQ100": "^NDX"
+        }
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            bt_asset = st.selectbox("기초자산 선택", list(TICKER_MAP.keys()), key="bt_asset")
+        with col2:
+            bt_ki_level = st.slider("가정할 낙인(KI) 배리어 (%)", min_value=15, max_value=70, value=45, step=1, key="bt_ki")
+            
+        bt_ticker = TICKER_MAP[bt_asset]
+        
+        with st.spinner("과거 13년 치 데이터를 받아와 롤링 시뮬레이션을 돌리는 중입니다..."):
+            try:
+                # 10년 치 가입일 + 3년 치 만기 판별 기간 = 총 13년 데이터 확보
+                bt_hist = yf.Ticker(bt_ticker).history(period="13y")
+                if 'Close' in bt_hist.columns:
+                    bt_hist = bt_hist.dropna(subset=['Close'])
+                    
+                if not bt_hist.empty:
+                    prices = bt_hist['Close'].values
+                    dates = bt_hist.index
+                    
+                    # ELS 3년 = 약 756 거래일
+                    window_size = 252 * 3
+                    total_valid_days = len(prices) - window_size
+                    
+                    if total_valid_days <= 0:
+                        st.error("데이터가 충분하지 않아 3년 만기 백테스트를 수행할 수 없습니다.")
+                    else:
+                        knock_in_count = 0
+                        hit_dates = []
+                        hit_prices = []
+                        
+                        # 롤링 윈도우 계산 로직
+                        for i in range(total_valid_days):
+                            issue_price = prices[i]
+                            ki_price = issue_price * (bt_ki_level / 100.0)
+                            # 가입일(i)로부터 3년(window_size) 동안의 최저가 확인
+                            window_min_price = np.min(prices[i : i + window_size])
+                            
+                            if window_min_price <= ki_price:
+                                knock_in_count += 1
+                                hit_dates.append(dates[i])
+                                hit_prices.append(issue_price)
+                                
+                        probability = (knock_in_count / total_valid_days) * 100
+                        
+                        # 결과 출력 대시보드
+                        st.markdown("---")
+                        res_col1, res_col2, res_col3 = st.columns(3)
+                        res_col1.metric("총 시뮬레이션 횟수", f"{total_valid_days:,}일", help="과거 10년간 매일 ELS에 가입했다고 가정한 횟수입니다.")
+                        res_col2.metric(f"낙인(KI) 도달 횟수", f"{knock_in_count:,}회", help="가입 후 3년 내에 설정한 낙인 배리어를 터치한 횟수입니다.", delta_color="inverse")
+                        res_col3.metric("🚨 역사적 낙인 확률", f"{probability:.2f}%", help="이 지수에 해당 낙인 조건으로 가입했을 때의 과거 위험도입니다.")
+                        
+                        # 시각화: '이때 샀으면 낙인 맞았다' 붉은 점 표시
+                        st.markdown(f"**📉 {bt_asset} 지수 흐름 및 낙인 발생 가입 시점 (Danger Zone)**")
+                        fig_bt = go.Figure()
+                        
+                        # 전체 지수 흐름
+                        fig_bt.add_trace(go.Scatter(x=dates, y=prices, mode='lines', name='지수 종가', line=dict(color='#9CA3AF', width=1)))
+                        
+                        # 낙인 맞은 가입일 빨간 점으로 표시
+                        if hit_dates:
+                            fig_bt.add_trace(go.Scatter(x=hit_dates, y=hit_prices, mode='markers', name='낙인 발생 가입일', marker=dict(color='#DC2626', size=4)))
+                        
+                        fig_bt.update_layout(
+                            xaxis_title="연도",
+                            yaxis_title="지수 포인트",
+                            hovermode="x unified",
+                            margin=dict(l=20, r=20, t=30, b=20),
+                            showlegend=True,
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        )
+                        st.plotly_chart(fig_bt, use_container_width=True)
+                        
+                        st.info("💡 위 그래프에서 **빨간색 점선(구간)**으로 표시된 날짜에 해당 ELS를 가입했다면, 3년 안에 낙인(KI)을 맞았다는 의미입니다. 주로 대폭락장(코로나 등)이 오기 1~2년 전 고점 부근에 빨간 점들이 몰려 있는 것을 확인하실 수 있습니다.")
+                        
+            except Exception as e:
+                st.error(f"백테스트 중 오류가 발생했습니다: {e}")
 
 except Exception as e:
-    st.error(f"오류가 발생했습니다: {e}")
+    st.error(f"전체 앱 오류가 발생했습니다: {e}")
