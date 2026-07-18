@@ -108,7 +108,35 @@ try:
         if len(filtered_df) == 0:
             st.info("조건에 맞는 상품이 없습니다.")
         else:
-            for idx, row in filtered_df.iterrows():
+            # 💡 [업데이트] 리스트 탭 전용 정렬 로직 (낙인 오름차순 -> 수익률 내림차순)
+            tab2_df = filtered_df.copy()
+            
+            def extract_ki(val):
+                s = str(val).strip()
+                # 노낙인은 무조건 맨 아래로 가도록 아주 큰 값(999) 부여
+                if "노낙인" in s or "없음" in s or s in ("-", ""): return 999.0
+                nums = re.findall(r"[-+]?\d*\.?\d+", s)
+                return float(nums[0]) if nums else 999.0
+            
+            def extract_yield(row):
+                p_name = str(row.get("상품명", "-"))
+                for c in row.index:
+                    if "수익" in str(c):
+                        v = str(row[c])
+                        if v.lower() != "nan" and v != "":
+                            nums = re.findall(r"[-+]?\d*\.?\d+", v.replace(",", ""))
+                            if nums: return float(nums[0])
+                m = re.search(r"(?:연\s*|)([\d\.]+)%", p_name)
+                if m: return float(m.group(1))
+                return 0.0
+            
+            tab2_df["_sort_ki"] = tab2_df["낙인(KI)"].apply(extract_ki)
+            tab2_df["_sort_yield"] = tab2_df.apply(extract_yield, axis=1)
+            
+            # 낙인(낮은순) -> 수익률(높은순) 정렬 적용
+            tab2_df = tab2_df.sort_values(by=["_sort_ki", "_sort_yield"], ascending=[True, False])
+
+            for idx, row in tab2_df.iterrows():
                 def get_val(col_name):
                     v = str(row.get(col_name, "-"))
                     return "-" if v.lower() == "nan" or v == "" else v
@@ -198,9 +226,18 @@ try:
                     current_price = float(hist['Close'].iloc[-1])
                     ki_price = current_price * (ki_level / 100.0)
                     
-                    metric_col1, metric_col2 = st.columns(2)
+                    # 💡 [업데이트] 최근 낙인선 터치일 계산
+                    touch_points = hist[hist['Close'] <= ki_price]
+                    if not touch_points.empty:
+                        last_touch_date = touch_points.index[-1].strftime('%Y-%m-%d')
+                    else:
+                        last_touch_date = "이력 없음"
+                    
+                    # 3개의 대시보드 표시
+                    metric_col1, metric_col2, metric_col3 = st.columns(3)
                     metric_col1.metric(label=f"📊 {selected_sim_asset} 현재 지수", value=f"{current_price:,.2f}")
                     metric_col2.metric(label=f"🚨 가상 낙인선 ({ki_level}%)", value=f"{ki_price:,.2f}")
+                    metric_col3.metric(label="⏱️ 가장 최근 낙인 터치일", value=last_touch_date, help="과거 10년 기준, 마지막으로 빨간 선 아래로 떨어졌던 날짜입니다.")
                     
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name='현재가 흐름', line=dict(color='#1E3A8A', width=1.5)))
@@ -216,7 +253,6 @@ try:
             except Exception as e:
                 st.error(f"오류: {e}")
 
-    # 💡 [새로 추가된 기능] 롤링 윈도우 백테스트
     with tab4:
         st.markdown("#### 🧪 기초자산 낙인(KI) 확률 백테스트 (Rolling Window)")
         st.markdown("과거 매 거래일마다 ELS(만기 3년)에 가입했다고 가정할 때, 3년 내에 낙인을 터치했을 확률을 계산합니다.")
@@ -240,7 +276,6 @@ try:
         
         with st.spinner("과거 13년 치 데이터를 받아와 롤링 시뮬레이션을 돌리는 중입니다..."):
             try:
-                # 10년 치 가입일 + 3년 치 만기 판별 기간 = 총 13년 데이터 확보
                 bt_hist = yf.Ticker(bt_ticker).history(period="13y")
                 if 'Close' in bt_hist.columns:
                     bt_hist = bt_hist.dropna(subset=['Close'])
@@ -249,7 +284,6 @@ try:
                     prices = bt_hist['Close'].values
                     dates = bt_hist.index
                     
-                    # ELS 3년 = 약 756 거래일
                     window_size = 252 * 3
                     total_valid_days = len(prices) - window_size
                     
@@ -260,11 +294,9 @@ try:
                         hit_dates = []
                         hit_prices = []
                         
-                        # 롤링 윈도우 계산 로직
                         for i in range(total_valid_days):
                             issue_price = prices[i]
                             ki_price = issue_price * (bt_ki_level / 100.0)
-                            # 가입일(i)로부터 3년(window_size) 동안의 최저가 확인
                             window_min_price = np.min(prices[i : i + window_size])
                             
                             if window_min_price <= ki_price:
@@ -274,35 +306,22 @@ try:
                                 
                         probability = (knock_in_count / total_valid_days) * 100
                         
-                        # 결과 출력 대시보드
                         st.markdown("---")
                         res_col1, res_col2, res_col3 = st.columns(3)
                         res_col1.metric("총 시뮬레이션 횟수", f"{total_valid_days:,}일", help="과거 10년간 매일 ELS에 가입했다고 가정한 횟수입니다.")
                         res_col2.metric(f"낙인(KI) 도달 횟수", f"{knock_in_count:,}회", help="가입 후 3년 내에 설정한 낙인 배리어를 터치한 횟수입니다.", delta_color="inverse")
                         res_col3.metric("🚨 역사적 낙인 확률", f"{probability:.2f}%", help="이 지수에 해당 낙인 조건으로 가입했을 때의 과거 위험도입니다.")
                         
-                        # 시각화: '이때 샀으면 낙인 맞았다' 붉은 점 표시
                         st.markdown(f"**📉 {bt_asset} 지수 흐름 및 낙인 발생 가입 시점 (Danger Zone)**")
                         fig_bt = go.Figure()
                         
-                        # 전체 지수 흐름
                         fig_bt.add_trace(go.Scatter(x=dates, y=prices, mode='lines', name='지수 종가', line=dict(color='#9CA3AF', width=1)))
                         
-                        # 낙인 맞은 가입일 빨간 점으로 표시
                         if hit_dates:
                             fig_bt.add_trace(go.Scatter(x=hit_dates, y=hit_prices, mode='markers', name='낙인 발생 가입일', marker=dict(color='#DC2626', size=4)))
                         
-                        fig_bt.update_layout(
-                            xaxis_title="연도",
-                            yaxis_title="지수 포인트",
-                            hovermode="x unified",
-                            margin=dict(l=20, r=20, t=30, b=20),
-                            showlegend=True,
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                        )
+                        fig_bt.update_layout(xaxis_title="연도", yaxis_title="지수 포인트", hovermode="x unified", margin=dict(l=20, r=20, t=30, b=20), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                         st.plotly_chart(fig_bt, use_container_width=True)
-                        
-                        st.info("💡 위 그래프에서 **빨간색 점선(구간)**으로 표시된 날짜에 해당 ELS를 가입했다면, 3년 안에 낙인(KI)을 맞았다는 의미입니다. 주로 대폭락장(코로나 등)이 오기 1~2년 전 고점 부근에 빨간 점들이 몰려 있는 것을 확인하실 수 있습니다.")
                         
             except Exception as e:
                 st.error(f"백테스트 중 오류가 발생했습니다: {e}")
