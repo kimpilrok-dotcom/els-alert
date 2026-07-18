@@ -98,7 +98,6 @@ try:
 
     st.subheader(f"총 {len(filtered_df)}개의 ELS 상품이 검색되었습니다.")
     
-    # 💡 [업데이트] 탭 3개로 분리
     tab1, tab2, tab3 = st.tabs(["📊 엑셀(표) 형태로 보기", "📝 리스트(카드) 형태로 보기", "📈 기초자산 낙인(KI) 시뮬레이터"])
     
     with tab1:
@@ -166,12 +165,10 @@ try:
                 
                 ''', unsafe_allow_html=True)
                 
-    # 💡 [새로 추가된 기능] 기초자산 낙인 시뮬레이터 탭
     with tab3:
         st.markdown("#### 📉 기초자산 10년 추이 및 현재가 기준 낙인선 분석")
         st.markdown("오늘 ELS에 가입한다고 가정했을 때, 설정한 낙인(KI) 도달 위험이 과거 폭락장(코로나, 금융위기 등)과 비교해 어느 정도 수준인지 직관적으로 확인하세요.")
         
-        # ELS 주요 지수 티커 매핑
         TICKER_MAP = {
             "S&P500": "^GSPC",
             "EUROSTOXX50": "^STOXX50E",
@@ -194,17 +191,17 @@ try:
                 ticker_data = yf.Ticker(ticker_symbol)
                 hist = ticker_data.history(period="10y")
                 
+                # 💡 [핵심 수정] 야후 파이낸스의 KOSPI200 등 결측치(NaN) 버그 방지
+                if 'Close' in hist.columns:
+                    hist = hist.dropna(subset=['Close'])
+                
                 if not hist.empty:
-                    current_price = hist['Close'].iloc[-1]
+                    current_price = float(hist['Close'].iloc[-1])
                     ki_price = current_price * (ki_level / 100.0)
                     
-                    # Plotly를 이용한 반응형 그래프 생성
                     fig = go.Figure()
                     
-                    # 과거 주가 선 (파란색)
                     fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name=selected_sim_asset, line=dict(color='#1E3A8A', width=1.5)))
-                    
-                    # 낙인(KI) 배리어 선 (빨간 점선)
                     fig.add_trace(go.Scatter(x=[hist.index[0], hist.index[-1]], y=[ki_price, ki_price], mode='lines', name=f'위험선 (현재가의 {ki_level}%)', line=dict(color='#DC2626', width=2, dash='dash')))
                     
                     fig.update_layout(
