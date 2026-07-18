@@ -135,9 +135,7 @@ def run():
     
     def append_to_message(group, ki_val):
         # 💡 [요청 반영] 문자가 크고 굵어 보이도록 테두리 적용 및 한 줄 띄우기
-        message_lines.append("┏━━━━━━━━━━━━━━━━━━━━━┓")
         message_lines.append(f"  ■ 낙인 {ki_val} (상위수익률 TOP 5)")
-        message_lines.append("┗━━━━━━━━━━━━━━━━━━━━━┛")
         message_lines.append("") # 띄어쓰기
         
         for idx, (_, row) in enumerate(group.iterrows(), 1):
