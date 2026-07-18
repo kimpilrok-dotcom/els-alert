@@ -5,6 +5,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 from kofia_els import automate_download, parse_kofia_file
 import numpy as np
+import datetime
 
 st.set_page_config(page_title="나만의 ELS 검색기", page_icon="🎯", layout="wide")
 st.title("🎯 나만의 맞춤형 ELS/DLS 검색기")
@@ -190,9 +191,17 @@ try:
                     
                 
                 ''', unsafe_allow_html=True)
-
+            
     with tab3:
         st.markdown("#### 📉 기초자산 10년 추이 및 현재가 기준 낙인선 분석")
+        
+        # 💡 [핵심 업데이트] 한국 시간(KST) 기준으로 '오늘' 날짜를 구해 데이터 수집 종료일(전날 종가)로 설정합니다.
+        KST = datetime.timezone(datetime.timedelta(hours=9))
+        today_kst = datetime.datetime.now(KST).date()
+        end_date_str = today_kst.strftime('%Y-%m-%d')  # yfinance에서 end=오늘로 설정하면 어제(전일)까지의 데이터만 가져옵니다.
+        start_10y_str = (today_kst - datetime.timedelta(days=365*10 + 5)).strftime('%Y-%m-%d')
+        
+        st.caption(f"✅ 데이터 기준: 조회일({today_kst.strftime('%Y-%m-%d')}) **전일 장 마감 종가(EOD)** 기준 확정 데이터 반영")
         
         TICKER_MAP = {
             "S&P500": "^GSPC",
@@ -211,10 +220,10 @@ try:
             
         ticker_symbol = TICKER_MAP[selected_sim_asset]
         
-        with st.spinner(f"{selected_sim_asset}의 과거 10년 금융 데이터를 불러오는 중입니다..."):
+        with st.spinner(f"{selected_sim_asset}의 확정된 금융 데이터를 불러오는 중입니다..."):
             try:
-                ticker_data = yf.Ticker(ticker_symbol)
-                hist = ticker_data.history(period="10y")
+                # 💡 [핵심 업데이트] start와 end를 명시하여 실시간 장중 변동 데이터를 원천 차단
+                hist = yf.Ticker(ticker_symbol).history(start=start_10y_str, end=end_date_str)
                 
                 if 'Close' in hist.columns:
                     hist = hist.dropna(subset=['Close'])
@@ -235,12 +244,12 @@ try:
                         last_touch_date_str = last_touch_idx.strftime('%Y-%m-%d')
                     
                     metric_col1, metric_col2, metric_col3 = st.columns(3)
-                    metric_col1.metric(label=f"📊 {selected_sim_asset} 현재 지수", value=f"{current_price:,.2f}")
+                    metric_col1.metric(label=f"📊 {selected_sim_asset} 최근 종가", value=f"{current_price:,.2f}")
                     metric_col2.metric(label=f"🚨 가상 낙인선 ({ki_level}%)", value=f"{ki_price:,.2f}")
                     metric_col3.metric(label="⏱️ 가장 최근 낙인 터치일", value=last_touch_date_str, help="과거 10년 기준, 마지막으로 빨간 선 아래로 떨어졌던 날짜입니다.")
                     
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name='현재가 흐름', line=dict(color='#1E3A8A', width=1.5)))
+                    fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name='종가 흐름', line=dict(color='#1E3A8A', width=1.5)))
                     fig.add_trace(go.Scatter(x=[hist.index[0], hist.index[-1]], y=[ki_price, ki_price], mode='lines', name=f'위험선 ({ki_level}%)', line=dict(color='#DC2626', width=2, dash='dash')))
                     
                     if last_touch_idx is not None:
@@ -279,6 +288,10 @@ try:
         st.markdown("#### 🧪 기초자산 낙인(KI) 확률 가중평균 백테스트")
         st.markdown("과거 매 거래일 ELS(만기 3년) 가입을 가정하고 낙인 터치 확률을 계산합니다. **(최근 3년 데이터는 기간 비례 가중평균을 적용하여 왜곡 없이 모든 데이터를 활용합니다.)**")
         
+        # 💡 [핵심 업데이트] 백테스트도 동일하게 조회일 전날 종가까지만 수집하도록 동기화
+        start_13y_str = (today_kst - datetime.timedelta(days=365*13 + 5)).strftime('%Y-%m-%d')
+        st.caption(f"✅ 데이터 기준: 조회일({today_kst.strftime('%Y-%m-%d')}) **전일 장 마감 종가(EOD)** 기준 확정 데이터 반영")
+        
         TICKER_MAP = {
             "S&P500": "^GSPC",
             "EUROSTOXX50": "^STOXX50E",
@@ -296,9 +309,11 @@ try:
             
         bt_ticker = TICKER_MAP[bt_asset]
         
-        with st.spinner("과거 13년 치 데이터를 받아와 롤링 시뮬레이션을 돌리는 중입니다..."):
+        with st.spinner("과거 13년 치 확정 데이터를 받아와 롤링 시뮬레이션을 돌리는 중입니다..."):
             try:
-                bt_hist = yf.Ticker(bt_ticker).history(period="13y")
+                # 💡 [핵심 업데이트] 장중 실시간 데이터 컷오프
+                bt_hist = yf.Ticker(bt_ticker).history(start=start_13y_str, end=end_date_str)
+                
                 if 'Close' in bt_hist.columns:
                     bt_hist = bt_hist.dropna(subset=['Close'])
                     
