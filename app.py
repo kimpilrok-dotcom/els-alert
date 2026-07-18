@@ -167,7 +167,6 @@ try:
                 
     with tab3:
         st.markdown("#### 📉 기초자산 10년 추이 및 현재가 기준 낙인선 분석")
-        st.markdown("오늘 ELS에 가입한다고 가정했을 때, 설정한 낙인(KI) 도달 위험이 과거 폭락장(코로나, 금융위기 등)과 비교해 어느 정도 수준인지 직관적으로 확인하세요.")
         
         TICKER_MAP = {
             "S&P500": "^GSPC",
@@ -182,7 +181,8 @@ try:
         with col1:
             selected_sim_asset = st.selectbox("분석할 대표 지수 선택", list(TICKER_MAP.keys()))
         with col2:
-            ki_level = st.slider("가상 낙인(KI) 조건 설정 (%)", min_value=30, max_value=70, value=45, step=5)
+            # 💡 [수정됨] 최소값을 15로 변경
+            ki_level = st.slider("가상 낙인(KI) 조건 설정 (%)", min_value=15, max_value=70, value=45, step=5)
             
         ticker_symbol = TICKER_MAP[selected_sim_asset]
         
@@ -191,7 +191,6 @@ try:
                 ticker_data = yf.Ticker(ticker_symbol)
                 hist = ticker_data.history(period="10y")
                 
-                # 💡 [핵심 수정] 야후 파이낸스의 KOSPI200 등 결측치(NaN) 버그 방지
                 if 'Close' in hist.columns:
                     hist = hist.dropna(subset=['Close'])
                 
@@ -199,22 +198,39 @@ try:
                     current_price = float(hist['Close'].iloc[-1])
                     ki_price = current_price * (ki_level / 100.0)
                     
+                    # 💡 [추가됨] 그래프 위에 큼직한 숫자로 지수 표시
+                    metric_col1, metric_col2 = st.columns(2)
+                    metric_col1.metric(label=f"📊 {selected_sim_asset} 현재 지수", value=f"{current_price:,.2f}")
+                    metric_col2.metric(label=f"🚨 가상 낙인선 ({ki_level}%)", value=f"{ki_price:,.2f}")
+                    
                     fig = go.Figure()
                     
-                    fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name=selected_sim_asset, line=dict(color='#1E3A8A', width=1.5)))
-                    fig.add_trace(go.Scatter(x=[hist.index[0], hist.index[-1]], y=[ki_price, ki_price], mode='lines', name=f'위험선 (현재가의 {ki_level}%)', line=dict(color='#DC2626', width=2, dash='dash')))
+                    fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name='현재가 흐름', line=dict(color='#1E3A8A', width=1.5)))
+                    fig.add_trace(go.Scatter(x=[hist.index[0], hist.index[-1]], y=[ki_price, ki_price], mode='lines', name=f'위험선 ({ki_level}%)', line=dict(color='#DC2626', width=2, dash='dash')))
+                    
+                    # 💡 [추가됨] 그래프의 선 끝부분(오른쪽)에 가격 태그 부착
+                    fig.add_annotation(
+                        x=hist.index[-1], y=current_price,
+                        text=f"{current_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0,
+                        font=dict(color="#1E3A8A", size=13), bgcolor="white", bordercolor="#1E3A8A"
+                    )
+                    fig.add_annotation(
+                        x=hist.index[-1], y=ki_price,
+                        text=f"{ki_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0,
+                        font=dict(color="#DC2626", size=13), bgcolor="white", bordercolor="#DC2626"
+                    )
                     
                     fig.update_layout(
-                        title=f"{selected_sim_asset} (최근 10년)",
                         xaxis_title="연도",
                         yaxis_title="지수 포인트",
                         hovermode="x unified",
-                        margin=dict(l=20, r=20, t=50, b=20)
+                        showlegend=False, # 화면을 더 깔끔하게 쓰기 위해 범례 숨김
+                        margin=dict(l=20, r=80, t=30, b=20) # 오른쪽 여백을 넓혀 숫자가 잘 안 잘리게 함
                     )
                     
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    st.info(f"💡 **현재 지수:** {current_price:,.2f} 포인트 ➔ **가상의 {ki_level}% 낙인선:** {ki_price:,.2f} 포인트\n\n위 그래프의 **빨간 점선**이 낙인선입니다. 과거 10년 동안 이 점선 밑으로 지수가 떨어진 적이 몇 번이나 있었는지 시각적으로 체크해 보세요.")
+                    st.info("💡 과거 10년 동안 위 그래프의 **빨간 점선(낙인선)** 밑으로 지수가 떨어진 적이 몇 번이나 있었는지 시각적으로 체크해 보세요.")
                 else:
                     st.warning("데이터를 불러올 수 없습니다. 일시적인 야후 파이낸스 서버 오류일 수 있습니다.")
             except Exception as e:
