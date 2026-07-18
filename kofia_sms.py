@@ -78,7 +78,6 @@ def get_filtered_els():
     for i, row in raw_df.iterrows():
         row_text = " ".join(str(x) for x in row.values)
         
-        # 1. 지수형 상품 선별 로직
         asset_val = ""
         for col in raw_df.columns:
             if "기초자산" in str(col):
@@ -98,9 +97,8 @@ def get_filtered_els():
                 break
                 
         if not is_index_only:
-            continue # 지수형이 아니면 스킵
+            continue
 
-        # 2. 낙인(KI) 값 추출 (% 기호 제거)
         ki_val = "노낙인"
         m1 = re.search(r"(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})", row_text, re.IGNORECASE)
         m2 = re.search(r"(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)", row_text, re.IGNORECASE)
@@ -112,7 +110,6 @@ def get_filtered_els():
         elif m3: ki_val = m3.group(1)
         elif no_ki_match: ki_val = "노낙인"
 
-        # 3. 수익률 추출
         yield_str = "0"
         for col in raw_df.columns:
             if "수익" in str(col):
@@ -127,17 +124,25 @@ def get_filtered_els():
         try: yield_num = float(re.sub(r"[^\d\.]", "", yield_str))
         except: yield_num = 0.0
 
-        # 4. 청약 기간 추출
         start_date, end_date = "", ""
         for col in raw_df.columns:
             if "청약" in str(col) and "시작" in str(col):
                 start_date = str(row[col]).split(' ')[0]
             elif "청약" in str(col) and "종료" in str(col):
                 end_date = str(row[col]).split(' ')[0]
-        
         sub_period = f"{start_date}~{end_date}" if start_date and end_date else "-"
 
-        # 문자 발송에 필요한 데이터만 딕셔너리로 저장
+        # 💡 [추가] 만기, 조기상환주기, 조기상환배리어 추출
+        clean_text_for_barrier = re.sub(r"\([A-Za-z0-9]+\)", "", row_text)
+        m_barrier = re.search(r"(\d{2,3}(?:[-\/,]\s*\d{2,3}){2,})", clean_text_for_barrier)
+        barrier_val = m_barrier.group(1).replace("/", "-").replace(",", "-").replace(" ", "") if m_barrier else "-"
+
+        m_maturity = re.search(r"(\d+(?:\.\d+)?)\s*(년|y)", row_text, re.IGNORECASE)
+        maturity_val = m_maturity.group(1) + "년" if m_maturity else "-"
+
+        m_cycle = re.search(r"(?:^|[^0-9\.])(\d+)\s*(개월|m)", row_text, re.IGNORECASE)
+        cycle_val = m_cycle.group(1) + "개월" if m_cycle else "-"
+
         result_list.append({
             "상품명": str(row.get("상품명", "-")),
             "기초자산": clean_asset,
@@ -145,10 +150,12 @@ def get_filtered_els():
             "수익률": yield_num,
             "수익률_텍스트": f"{yield_num}%",
             "청약기간": sub_period,
-            "발행회사": str(row.get("발행회사", "-"))
+            "발행회사": str(row.get("발행회사", "-")),
+            "만기": maturity_val,          # 💡 추가됨
+            "조기상환주기": cycle_val,      # 💡 추가됨
+            "조기상환배리어": barrier_val   # 💡 추가됨
         })
 
-    # 5. 수익률 기준 내림차순 정렬
     final_df = pd.DataFrame(result_list)
     if not final_df.empty:
         final_df = final_df.sort_values(by="수익률", ascending=False).reset_index(drop=True)
