@@ -12,7 +12,7 @@ def get_data():
     path = automate_download()
     df = parse_kofia_file(path)
     df.columns = df.columns.astype(str)
-    filtered_df = df.drop(columns=["신용등급", "선택"], errors="ignore")
+    filtered_df = df.drop(columns=["신용등급", "선택","사이트링크","홈페이지","간이투자설명서"], errors="ignore")
     
     if "기초자산" in filtered_df.columns:
         br_pattern = chr(60) + r"(?i)br\s*/?" + chr(62)
