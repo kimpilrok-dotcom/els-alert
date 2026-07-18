@@ -49,11 +49,11 @@ def format_product(row, number):
     cycle = row.get("조기상환주기", "-")
     barrier = row.get("조기상환배리어", "-")
 
-    # 보기 좋게 문자로 조립합니다.
+    # 💡 [요청 반영] 보기 좋게 문자로 조립 + 수익률 강조 괄호 【 】 추가!
     return (
         f"{number}. {issuer} {name}\n"
         f"기초: {underlying}\n"
-        f"낙인: {knock_in} / 수익률: {coupon}\n"
+        f"낙인: {knock_in} / 수익률: 【 {coupon} 】\n"
         f"만기: {maturity} / 주기: {cycle}\n"
         f"배리어: {barrier}"
     )
@@ -134,7 +134,11 @@ def run():
     newly_sent_product_ids = []
     
     def append_to_message(group, ki_val):
-        message_lines.append(f"■ 낙인 {ki_val} (상위수익률 TOP 5)")
+        # 💡 [요청 반영] 문자가 크고 굵어 보이도록 테두리 적용 및 한 줄 띄우기
+        message_lines.append("┏━━━━━━━━━━━━━━━━━━━━━┓")
+        message_lines.append(f"  ■ 낙인 {ki_val} (상위수익률 TOP 5)")
+        message_lines.append("┗━━━━━━━━━━━━━━━━━━━━━┛")
+        message_lines.append("") # 띄어쓰기
         
         for idx, (_, row) in enumerate(group.iterrows(), 1):
             pid = row["_product_id"]
