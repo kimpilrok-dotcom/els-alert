@@ -99,7 +99,7 @@ try:
 
     st.subheader(f"총 {len(filtered_df)}개의 ELS 상품이 검색되었습니다.")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 엑셀(표)", "📝 리스트(카드)", "📈 낙인 시뮬레이터", "🧪 과거 10년 롤링 백테스트"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 엑셀(표)", "📝 리스트(카드)", "📈 낙인 시뮬레이터", "🧪 과거 확률 백테스트"])
     
     with tab1:
         st.dataframe(filtered_df, use_container_width=True)
@@ -190,165 +190,177 @@ try:
                     
                 
                 ''', unsafe_allow_html=True)
-                
-    with tab3:
-        st.markdown("#### 📉 기초자산 10년 추이 및 현재가 기준 낙인선 분석")
-        
-        TICKER_MAP = {
-            "S&P500": "^GSPC",
-            "EUROSTOXX50": "^STOXX50E",
-            "KOSPI200": "^KS200",
-            "NIKKEI225": "^N225",
-            "HSCEI": "^HSCE",
-            "NASDAQ100": "^NDX"
-        }
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            selected_sim_asset = st.selectbox("분석할 대표 지수 선택", list(TICKER_MAP.keys()), key="sim_asset")
-        with col2:
-            ki_level = st.slider("가상 낙인(KI) 조건 설정 (%)", min_value=15, max_value=70, value=45, step=5, key="sim_ki")
             
-        ticker_symbol = TICKER_MAP[selected_sim_asset]
+with tab3:
+    st.markdown("#### 📉 기초자산 10년 추이 및 현재가 기준 낙인선 분석")
+    
+    TICKER_MAP = {
+        "S&P500": "^GSPC",
+        "EUROSTOXX50": "^STOXX50E",
+        "KOSPI200": "^KS200",
+        "NIKKEI225": "^N225",
+        "HSCEI": "^HSCE",
+        "NASDAQ100": "^NDX"
+    }
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        selected_sim_asset = st.selectbox("분석할 대표 지수 선택", list(TICKER_MAP.keys()), key="sim_asset")
+    with col2:
+        # 💡 [범위 수정] min=1, max=99, step=1로 아주 세밀한 설정 가능
+        ki_level = st.slider("가상 낙인(KI) 조건 설정 (%)", min_value=1, max_value=99, value=45, step=1, key="sim_ki")
         
-        with st.spinner(f"{selected_sim_asset}의 과거 10년 금융 데이터를 불러오는 중입니다..."):
-            try:
-                ticker_data = yf.Ticker(ticker_symbol)
-                hist = ticker_data.history(period="10y")
+    ticker_symbol = TICKER_MAP[selected_sim_asset]
+    
+    with st.spinner(f"{selected_sim_asset}의 과거 10년 금융 데이터를 불러오는 중입니다..."):
+        try:
+            ticker_data = yf.Ticker(ticker_symbol)
+            hist = ticker_data.history(period="10y")
+            
+            if 'Close' in hist.columns:
+                hist = hist.dropna(subset=['Close'])
+            
+            if not hist.empty:
+                current_price = float(hist['Close'].iloc[-1])
+                ki_price = current_price * (ki_level / 100.0)
                 
-                if 'Close' in hist.columns:
-                    hist = hist.dropna(subset=['Close'])
+                touch_points = hist[hist['Close'] <= ki_price]
                 
-                if not hist.empty:
-                    current_price = float(hist['Close'].iloc[-1])
-                    ki_price = current_price * (ki_level / 100.0)
-                    
-                    touch_points = hist[hist['Close'] <= ki_price]
-                    
-                    # 💡 변수 초기화
-                    last_touch_date_str = "이력 없음"
-                    last_touch_idx = None
-                    last_touch_val = None
-                    
-                    if not touch_points.empty:
-                        last_touch_idx = touch_points.index[-1]
-                        last_touch_val = touch_points['Close'].iloc[-1]
-                        last_touch_date_str = last_touch_idx.strftime('%Y-%m-%d')
-                    
-                    metric_col1, metric_col2, metric_col3 = st.columns(3)
-                    metric_col1.metric(label=f"📊 {selected_sim_asset} 현재 지수", value=f"{current_price:,.2f}")
-                    metric_col2.metric(label=f"🚨 가상 낙인선 ({ki_level}%)", value=f"{ki_price:,.2f}")
-                    metric_col3.metric(label="⏱️ 가장 최근 낙인 터치일", value=last_touch_date_str, help="과거 10년 기준, 마지막으로 빨간 선 아래로 떨어졌던 날짜입니다.")
-                    
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name='현재가 흐름', line=dict(color='#1E3A8A', width=1.5)))
-                    fig.add_trace(go.Scatter(x=[hist.index[0], hist.index[-1]], y=[ki_price, ki_price], mode='lines', name=f'위험선 ({ki_level}%)', line=dict(color='#DC2626', width=2, dash='dash')))
-                    
-                    # 💡 [핵심 추가] 최근 터치일에 눈에 띄는 주황색 마커와 말풍선 추가
-                    if last_touch_idx is not None:
-                        fig.add_trace(go.Scatter(
-                            x=[last_touch_idx], 
-                            y=[last_touch_val],
-                            mode='markers',
-                            name='터치 지점',
-                            marker=dict(color='#EA580C', size=12, line=dict(color='white', width=2))
-                        ))
-                        fig.add_annotation(
-                            x=last_touch_idx,
-                            y=last_touch_val,
-                            text=f"최근 터치: {last_touch_date_str}",
-                            showarrow=True,
-                            arrowhead=2,
-                            ax=0,
-                            ay=-40,
-                            font=dict(color="#EA580C", size=12, family="Arial Black"),
-                            bgcolor="white",
-                            bordercolor="#EA580C",
-                            borderwidth=1.5
-                        )
-                    
-                    fig.add_annotation(x=hist.index[-1], y=current_price, text=f"{current_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0, font=dict(color="#1E3A8A", size=13), bgcolor="white", bordercolor="#1E3A8A")
-                    fig.add_annotation(x=hist.index[-1], y=ki_price, text=f"{ki_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0, font=dict(color="#DC2626", size=13), bgcolor="white", bordercolor="#DC2626")
-                    
-                    fig.update_layout(xaxis_title="연도", yaxis_title="지수 포인트", hovermode="x unified", showlegend=False, margin=dict(l=20, r=80, t=30, b=20))
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("데이터를 불러올 수 없습니다.")
-            except Exception as e:
-                st.error(f"오류: {e}")
+                last_touch_date_str = "이력 없음"
+                last_touch_idx = None
+                last_touch_val = None
+                
+                if not touch_points.empty:
+                    last_touch_idx = touch_points.index[-1]
+                    last_touch_val = touch_points['Close'].iloc[-1]
+                    last_touch_date_str = last_touch_idx.strftime('%Y-%m-%d')
+                
+                metric_col1, metric_col2, metric_col3 = st.columns(3)
+                metric_col1.metric(label=f"📊 {selected_sim_asset} 현재 지수", value=f"{current_price:,.2f}")
+                metric_col2.metric(label=f"🚨 가상 낙인선 ({ki_level}%)", value=f"{ki_price:,.2f}")
+                metric_col3.metric(label="⏱️ 가장 최근 낙인 터치일", value=last_touch_date_str, help="과거 10년 기준, 마지막으로 빨간 선 아래로 떨어졌던 날짜입니다.")
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name='현재가 흐름', line=dict(color='#1E3A8A', width=1.5)))
+                fig.add_trace(go.Scatter(x=[hist.index[0], hist.index[-1]], y=[ki_price, ki_price], mode='lines', name=f'위험선 ({ki_level}%)', line=dict(color='#DC2626', width=2, dash='dash')))
+                
+                if last_touch_idx is not None:
+                    fig.add_trace(go.Scatter(
+                        x=[last_touch_idx], 
+                        y=[last_touch_val],
+                        mode='markers',
+                        name='터치 지점',
+                        marker=dict(color='#EA580C', size=12, line=dict(color='white', width=2))
+                    ))
+                    fig.add_annotation(
+                        x=last_touch_idx,
+                        y=last_touch_val,
+                        text=f"최근 터치: {last_touch_date_str}",
+                        showarrow=True,
+                        arrowhead=2,
+                        ax=0,
+                        ay=-40,
+                        font=dict(color="#EA580C", size=12, family="Arial Black"),
+                        bgcolor="white",
+                        bordercolor="#EA580C",
+                        borderwidth=1.5
+                    )
+                
+                fig.add_annotation(x=hist.index[-1], y=current_price, text=f"{current_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0, font=dict(color="#1E3A8A", size=13), bgcolor="white", bordercolor="#1E3A8A")
+                fig.add_annotation(x=hist.index[-1], y=ki_price, text=f"{ki_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0, font=dict(color="#DC2626", size=13), bgcolor="white", bordercolor="#DC2626")
+                
+                fig.update_layout(xaxis_title="연도", yaxis_title="지수 포인트", hovermode="x unified", showlegend=False, margin=dict(l=20, r=80, t=30, b=20))
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("데이터를 불러올 수 없습니다.")
+        except Exception as e:
+            st.error(f"오류: {e}")
 
-    with tab4:
-        st.markdown("#### 🧪 기초자산 낙인(KI) 확률 백테스트 (Rolling Window)")
-        st.markdown("과거 매 거래일마다 ELS(만기 3년)에 가입했다고 가정할 때, 3년 내에 낙인을 터치했을 확률을 계산합니다.")
+with tab4:
+    st.markdown("#### 🧪 기초자산 낙인(KI) 확률 가중평균 백테스트")
+    st.markdown("과거 매 거래일 ELS(만기 3년) 가입을 가정하고 낙인 터치 확률을 계산합니다. **(최근 3년 데이터는 기간 비례 가중평균을 적용하여 왜곡 없이 모든 데이터를 활용합니다.)**")
+    
+    TICKER_MAP = {
+        "S&P500": "^GSPC",
+        "EUROSTOXX50": "^STOXX50E",
+        "KOSPI200": "^KS200",
+        "NIKKEI225": "^N225",
+        "HSCEI": "^HSCE",
+        "NASDAQ100": "^NDX"
+    }
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        bt_asset = st.selectbox("기초자산 선택", list(TICKER_MAP.keys()), key="bt_asset_2")
+    with col2:
+        # 💡 [범위 수정] min=1, max=99, step=1로 아주 세밀한 설정 가능
+        bt_ki_level = st.slider("가정할 낙인(KI) 배리어 (%)", min_value=1, max_value=99, value=45, step=1, key="bt_ki_2")
         
-        TICKER_MAP = {
-            "S&P500": "^GSPC",
-            "EUROSTOXX50": "^STOXX50E",
-            "KOSPI200": "^KS200",
-            "NIKKEI225": "^N225",
-            "HSCEI": "^HSCE",
-            "NASDAQ100": "^NDX"
-        }
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            bt_asset = st.selectbox("기초자산 선택", list(TICKER_MAP.keys()), key="bt_asset_2")
-        with col2:
-            bt_ki_level = st.slider("가정할 낙인(KI) 배리어 (%)", min_value=15, max_value=70, value=45, step=1, key="bt_ki_2")
-            
-        bt_ticker = TICKER_MAP[bt_asset]
-        
-        with st.spinner("과거 13년 치 데이터를 받아와 롤링 시뮬레이션을 돌리는 중입니다..."):
-            try:
-                bt_hist = yf.Ticker(bt_ticker).history(period="13y")
-                if 'Close' in bt_hist.columns:
-                    bt_hist = bt_hist.dropna(subset=['Close'])
+    bt_ticker = TICKER_MAP[bt_asset]
+    
+    with st.spinner("과거 13년 치 데이터를 받아와 롤링 시뮬레이션을 돌리는 중입니다..."):
+        try:
+            bt_hist = yf.Ticker(bt_ticker).history(period="13y")
+            if 'Close' in bt_hist.columns:
+                bt_hist = bt_hist.dropna(subset=['Close'])
+                
+            if not bt_hist.empty:
+                prices = bt_hist['Close'].values
+                dates = bt_hist.index
+                
+                window_size = 252 * 3
+                total_sim_days = len(prices)
+                
+                if total_sim_days <= 0:
+                    st.error("데이터가 충분하지 않아 백테스트를 수행할 수 없습니다.")
+                else:
+                    knock_in_count = 0.0
+                    weighted_total = 0.0
+                    hit_dates = []
+                    hit_prices = []
                     
-                if not bt_hist.empty:
-                    prices = bt_hist['Close'].values
-                    dates = bt_hist.index
-                    
-                    window_size = 252 * 3
-                    total_valid_days = len(prices) - window_size
-                    
-                    if total_valid_days <= 0:
-                        st.error("데이터가 충분하지 않아 3년 만기 백테스트를 수행할 수 없습니다.")
-                    else:
-                        knock_in_count = 0
-                        hit_dates = []
-                        hit_prices = []
+                    for i in range(total_sim_days):
+                        issue_price = prices[i]
+                        ki_price = issue_price * (bt_ki_level / 100.0)
                         
-                        for i in range(total_valid_days):
-                            issue_price = prices[i]
-                            ki_price = issue_price * (bt_ki_level / 100.0)
-                            window_min_price = np.min(prices[i : i + window_size])
-                            
-                            if window_min_price <= ki_price:
-                                knock_in_count += 1
-                                hit_dates.append(dates[i])
-                                hit_prices.append(issue_price)
+                        remaining_days = total_sim_days - i
+                        actual_window = min(window_size, remaining_days)
+                        
+                        window_min_price = np.min(prices[i : i + actual_window])
+                        
+                        if window_min_price <= ki_price:
+                            knock_in_count += 1.0
+                            weighted_total += 1.0
+                            hit_dates.append(dates[i])
+                            hit_prices.append(issue_price)
+                        else:
+                            if actual_window == window_size:
+                                weighted_total += 1.0
+                            else:
+                                weight = actual_window / window_size
+                                weighted_total += weight
                                 
-                        probability = (knock_in_count / total_valid_days) * 100
-                        
-                        st.markdown("---")
-                        res_col1, res_col2, res_col3 = st.columns(3)
-                        res_col1.metric("총 시뮬레이션 횟수", f"{total_valid_days:,}일", help="과거 10년간 매일 ELS에 가입했다고 가정한 횟수입니다.")
-                        res_col2.metric(f"낙인(KI) 도달 횟수", f"{knock_in_count:,}회", help="가입 후 3년 내에 설정한 낙인 배리어를 터치한 횟수입니다.", delta_color="inverse")
-                        res_col3.metric("🚨 역사적 낙인 확률", f"{probability:.2f}%", help="이 지수에 해당 낙인 조건으로 가입했을 때의 과거 위험도입니다.")
-                        
-                        st.markdown(f"**📉 {bt_asset} 지수 흐름 및 낙인 발생 가입 시점 (Danger Zone)**")
-                        fig_bt = go.Figure()
-                        
-                        fig_bt.add_trace(go.Scatter(x=dates, y=prices, mode='lines', name='지수 종가', line=dict(color='#9CA3AF', width=1)))
-                        
-                        if hit_dates:
-                            fig_bt.add_trace(go.Scatter(x=hit_dates, y=hit_prices, mode='markers', name='낙인 발생 가입일', marker=dict(color='#DC2626', size=4)))
-                        
-                        fig_bt.update_layout(xaxis_title="연도", yaxis_title="지수 포인트", hovermode="x unified", margin=dict(l=20, r=20, t=30, b=20), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                        st.plotly_chart(fig_bt, use_container_width=True)
-                        
-            except Exception as e:
-                st.error(f"백테스트 중 오류가 발생했습니다: {e}")
+                    probability = (knock_in_count / weighted_total) * 100 if weighted_total > 0 else 0
+                    
+                    st.markdown("---")
+                    res_col1, res_col2, res_col3 = st.columns(3)
+                    res_col1.metric("총 시뮬레이션 일수", f"{total_sim_days:,}일", help="최근 3년 포함, 단 하루도 버리지 않고 모든 거래일을 검증했습니다.")
+                    res_col2.metric(f"낙인(KI) 도달 횟수", f"{int(knock_in_count):,}회", help="최근 가입분 중 낙인이 터진 건까지 모두 포함된 수치입니다.", delta_color="inverse")
+                    res_col3.metric("🚨 가중평균 낙인 확률", f"{probability:.2f}%", help="최근 3년 미도래 데이터는 기간 비례 가중치를 적용하여, 확률이 부풀려지거나 축소되는 왜곡을 방지했습니다.")
+                    
+                    st.markdown(f"**📉 {bt_asset} 지수 흐름 및 낙인 발생 가입 시점 (Danger Zone)**")
+                    fig_bt = go.Figure()
+                    
+                    fig_bt.add_trace(go.Scatter(x=dates, y=prices, mode='lines', name='지수 종가', line=dict(color='#9CA3AF', width=1)))
+                    
+                    if hit_dates:
+                        fig_bt.add_trace(go.Scatter(x=hit_dates, y=hit_prices, mode='markers', name='낙인 발생 가입일', marker=dict(color='#DC2626', size=4)))
+                    
+                    fig_bt.update_layout(xaxis_title="연도", yaxis_title="지수 포인트", hovermode="x unified", margin=dict(l=20, r=20, t=30, b=20), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    st.plotly_chart(fig_bt, use_container_width=True)
+                    
+        except Exception as e:
+            st.error(f"백테스트 중 오류가 발생했습니다: {e}")
 
 except Exception as e:
     st.error(f"전체 앱 오류가 발생했습니다: {e}")
