@@ -108,12 +108,10 @@ try:
         if len(filtered_df) == 0:
             st.info("조건에 맞는 상품이 없습니다.")
         else:
-            # 💡 [업데이트] 리스트 탭 전용 정렬 로직 (낙인 오름차순 -> 수익률 내림차순)
             tab2_df = filtered_df.copy()
             
             def extract_ki(val):
                 s = str(val).strip()
-                # 노낙인은 무조건 맨 아래로 가도록 아주 큰 값(999) 부여
                 if "노낙인" in s or "없음" in s or s in ("-", ""): return 999.0
                 nums = re.findall(r"[-+]?\d*\.?\d+", s)
                 return float(nums[0]) if nums else 999.0
@@ -133,7 +131,6 @@ try:
             tab2_df["_sort_ki"] = tab2_df["낙인(KI)"].apply(extract_ki)
             tab2_df["_sort_yield"] = tab2_df.apply(extract_yield, axis=1)
             
-            # 낙인(낮은순) -> 수익률(높은순) 정렬 적용
             tab2_df = tab2_df.sort_values(by=["_sort_ki", "_sort_yield"], ascending=[True, False])
 
             for idx, row in tab2_df.iterrows():
@@ -226,22 +223,49 @@ try:
                     current_price = float(hist['Close'].iloc[-1])
                     ki_price = current_price * (ki_level / 100.0)
                     
-                    # 💡 [업데이트] 최근 낙인선 터치일 계산
                     touch_points = hist[hist['Close'] <= ki_price]
-                    if not touch_points.empty:
-                        last_touch_date = touch_points.index[-1].strftime('%Y-%m-%d')
-                    else:
-                        last_touch_date = "이력 없음"
                     
-                    # 3개의 대시보드 표시
+                    # 💡 변수 초기화
+                    last_touch_date_str = "이력 없음"
+                    last_touch_idx = None
+                    last_touch_val = None
+                    
+                    if not touch_points.empty:
+                        last_touch_idx = touch_points.index[-1]
+                        last_touch_val = touch_points['Close'].iloc[-1]
+                        last_touch_date_str = last_touch_idx.strftime('%Y-%m-%d')
+                    
                     metric_col1, metric_col2, metric_col3 = st.columns(3)
                     metric_col1.metric(label=f"📊 {selected_sim_asset} 현재 지수", value=f"{current_price:,.2f}")
                     metric_col2.metric(label=f"🚨 가상 낙인선 ({ki_level}%)", value=f"{ki_price:,.2f}")
-                    metric_col3.metric(label="⏱️ 가장 최근 낙인 터치일", value=last_touch_date, help="과거 10년 기준, 마지막으로 빨간 선 아래로 떨어졌던 날짜입니다.")
+                    metric_col3.metric(label="⏱️ 가장 최근 낙인 터치일", value=last_touch_date_str, help="과거 10년 기준, 마지막으로 빨간 선 아래로 떨어졌던 날짜입니다.")
                     
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name='현재가 흐름', line=dict(color='#1E3A8A', width=1.5)))
                     fig.add_trace(go.Scatter(x=[hist.index[0], hist.index[-1]], y=[ki_price, ki_price], mode='lines', name=f'위험선 ({ki_level}%)', line=dict(color='#DC2626', width=2, dash='dash')))
+                    
+                    # 💡 [핵심 추가] 최근 터치일에 눈에 띄는 주황색 마커와 말풍선 추가
+                    if last_touch_idx is not None:
+                        fig.add_trace(go.Scatter(
+                            x=[last_touch_idx], 
+                            y=[last_touch_val],
+                            mode='markers',
+                            name='터치 지점',
+                            marker=dict(color='#EA580C', size=12, line=dict(color='white', width=2))
+                        ))
+                        fig.add_annotation(
+                            x=last_touch_idx,
+                            y=last_touch_val,
+                            text=f"최근 터치: {last_touch_date_str}",
+                            showarrow=True,
+                            arrowhead=2,
+                            ax=0,
+                            ay=-40,
+                            font=dict(color="#EA580C", size=12, family="Arial Black"),
+                            bgcolor="white",
+                            bordercolor="#EA580C",
+                            borderwidth=1.5
+                        )
                     
                     fig.add_annotation(x=hist.index[-1], y=current_price, text=f"{current_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0, font=dict(color="#1E3A8A", size=13), bgcolor="white", bordercolor="#1E3A8A")
                     fig.add_annotation(x=hist.index[-1], y=ki_price, text=f"{ki_price:,.2f}", showarrow=True, arrowhead=2, ax=40, ay=0, font=dict(color="#DC2626", size=13), bgcolor="white", bordercolor="#DC2626")
@@ -268,9 +292,9 @@ try:
         
         col1, col2 = st.columns(2)
         with col1:
-            bt_asset = st.selectbox("기초자산 선택", list(TICKER_MAP.keys()), key="bt_asset")
+            bt_asset = st.selectbox("기초자산 선택", list(TICKER_MAP.keys()), key="bt_asset_2")
         with col2:
-            bt_ki_level = st.slider("가정할 낙인(KI) 배리어 (%)", min_value=15, max_value=70, value=45, step=1, key="bt_ki")
+            bt_ki_level = st.slider("가정할 낙인(KI) 배리어 (%)", min_value=15, max_value=70, value=45, step=1, key="bt_ki_2")
             
         bt_ticker = TICKER_MAP[bt_asset]
         
