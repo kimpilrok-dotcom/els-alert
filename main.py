@@ -8,7 +8,7 @@ from solapi import SolapiMessageService
 from solapi.model import RequestMessage
 
 # 💡 1단계에서 만든 파일을 불러옵니다! (파일 이름이 다르면 kofia_els 부분을 수정하세요)
-from kofia_els import get_filtered_els
+from kofia_sms import get_filtered_els
 
 BASE_DIR = Path(__file__).resolve().parent
 STATE_FILE = BASE_DIR / "sent_ids.json"
