@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import re
+import yfinance as yf
+import plotly.graph_objects as go
 from kofia_els import automate_download, parse_kofia_file
 
 st.set_page_config(page_title="나만의 ELS 검색기", page_icon="🎯", layout="wide")
@@ -12,7 +14,7 @@ def get_data():
     path = automate_download()
     df = parse_kofia_file(path)
     df.columns = df.columns.astype(str)
-    filtered_df = df.drop(columns=["신용등급", "선택","사이트링크","홈페이지","간이투자설명서"], errors="ignore")
+    filtered_df = df.drop(columns=["신용등급", "선택"], errors="ignore")
     
     if "기초자산" in filtered_df.columns:
         br_pattern = chr(60) + r"(?i)br\s*/?" + chr(62)
@@ -80,20 +82,13 @@ try:
                 all_assets.extend(parts)
         
         unique_assets = list(set([a for a in all_assets if a]))
-        
-        # 💡 UI 필터 정렬 로직에도 개선된 지수 판별 로직 적용
-        index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "DOW", "NDX", "항셍", "NASDAQ100", "나스닥100", "NASDAQ 100", "나스닥 100"]
+        index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "나스닥", "DOW", "NASDAQ", "NDX", "항셍"]
         
         indices = []
         stocks = []
         for a in unique_assets:
-            a_upper = a.upper()
-            if re.search(r'\((NASDAQ|NYSE|나스닥|뉴욕|NY|AMEX)[^)]*\)', a_upper):
-                stocks.append(a)
-            elif any(k in a_upper for k in index_keywords): 
-                indices.append(a)
-            else: 
-                stocks.append(a)
+            if any(k.upper() in a.upper() for k in index_keywords): indices.append(a)
+            else: stocks.append(a)
                 
         asset_options = sorted(indices) + sorted(stocks)
         selected_assets = st.sidebar.multiselect("🔎 기초자산 (지수형 먼저 표시)", asset_options)
@@ -101,35 +96,10 @@ try:
             mask = filtered_df["기초자산"].astype(str).apply(lambda x: any(sel in x for sel in selected_assets))
             filtered_df = filtered_df[mask]
 
-    def get_sort_ki(ki_str):
-        val = str(ki_str).strip()
-        if "노낙인" in val or "없음" in val or val == "-": 
-            return 9999.0
-        m = re.search(r'(\d+)', val)
-        if m: return float(m.group(1))
-        return 9999.0
-
-    def get_sort_yield(row):
-        for c in row.index:
-            if "수익" in str(c):
-                v = str(row[c])
-                if v.lower() != "nan" and v.strip() != "":
-                    m = re.search(r'([\d\.]+)', v)
-                    if m: return float(m.group(1))
-        prod_name = str(row.get("상품명", ""))
-        m = re.search(r"(?:연\s*|)([\d\.]+)%", prod_name)
-        if m: return float(m.group(1))
-        return 0.0
-
-    filtered_df['sort_ki'] = filtered_df['낙인(KI)'].apply(get_sort_ki)
-    filtered_df['sort_yield'] = filtered_df.apply(get_sort_yield, axis=1)
-    
-    filtered_df = filtered_df.sort_values(by=['sort_ki', 'sort_yield'], ascending=[True, False])
-    filtered_df = filtered_df.drop(columns=['sort_ki', 'sort_yield'])
-
     st.subheader(f"총 {len(filtered_df)}개의 ELS 상품이 검색되었습니다.")
     
-    tab1, tab2 = st.tabs(["📊 엑셀(표) 형태로 보기", "📝 리스트(카드) 형태로 보기"])
+    # 💡 [업데이트] 탭 3개로 분리
+    tab1, tab2, tab3 = st.tabs(["📊 엑셀(표) 형태로 보기", "📝 리스트(카드) 형태로 보기", "📈 기초자산 낙인(KI) 시뮬레이터"])
     
     with tab1:
         st.dataframe(filtered_df, use_container_width=True)
@@ -162,8 +132,7 @@ try:
                     m = re.search(r"(?:연\s*|)([\d\.]+)%", prod_name)
                     if m: yield_val = f"연 {m.group(1)}%"
                         
-                start_date = ""
-                end_date = ""
+                start_date, end_date = "", ""
                 for c in row.index:
                     if "청약" in str(c) and "시작" in str(c):
                         v = str(row[c]).split(' ')[0]
@@ -172,8 +141,7 @@ try:
                         v = str(row[c]).split(' ')[0]
                         if v.lower() != "nan": end_date = v
                         
-                if start_date and end_date:
-                    sub_period = f"{start_date} ~ {end_date}"
+                if start_date and end_date: sub_period = f"{start_date} ~ {end_date}"
                 else:
                     sub_period = "-"
                     for c in row.index:
@@ -197,6 +165,63 @@ try:
                     
                 
                 ''', unsafe_allow_html=True)
+                
+    # 💡 [새로 추가된 기능] 기초자산 낙인 시뮬레이터 탭
+    with tab3:
+        st.markdown("#### 📉 기초자산 10년 추이 및 현재가 기준 낙인선 분석")
+        st.markdown("오늘 ELS에 가입한다고 가정했을 때, 설정한 낙인(KI) 도달 위험이 과거 폭락장(코로나, 금융위기 등)과 비교해 어느 정도 수준인지 직관적으로 확인하세요.")
+        
+        # ELS 주요 지수 티커 매핑
+        TICKER_MAP = {
+            "S&P500": "^GSPC",
+            "EUROSTOXX50": "^STOXX50E",
+            "KOSPI200": "^KS200",
+            "NIKKEI225": "^N225",
+            "HSCEI": "^HSCE",
+            "NASDAQ100": "^NDX"
+        }
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_sim_asset = st.selectbox("분석할 대표 지수 선택", list(TICKER_MAP.keys()))
+        with col2:
+            ki_level = st.slider("가상 낙인(KI) 조건 설정 (%)", min_value=30, max_value=70, value=45, step=5)
+            
+        ticker_symbol = TICKER_MAP[selected_sim_asset]
+        
+        with st.spinner(f"{selected_sim_asset}의 과거 10년 금융 데이터를 불러오는 중입니다..."):
+            try:
+                ticker_data = yf.Ticker(ticker_symbol)
+                hist = ticker_data.history(period="10y")
+                
+                if not hist.empty:
+                    current_price = hist['Close'].iloc[-1]
+                    ki_price = current_price * (ki_level / 100.0)
+                    
+                    # Plotly를 이용한 반응형 그래프 생성
+                    fig = go.Figure()
+                    
+                    # 과거 주가 선 (파란색)
+                    fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name=selected_sim_asset, line=dict(color='#1E3A8A', width=1.5)))
+                    
+                    # 낙인(KI) 배리어 선 (빨간 점선)
+                    fig.add_trace(go.Scatter(x=[hist.index[0], hist.index[-1]], y=[ki_price, ki_price], mode='lines', name=f'위험선 (현재가의 {ki_level}%)', line=dict(color='#DC2626', width=2, dash='dash')))
+                    
+                    fig.update_layout(
+                        title=f"{selected_sim_asset} (최근 10년)",
+                        xaxis_title="연도",
+                        yaxis_title="지수 포인트",
+                        hovermode="x unified",
+                        margin=dict(l=20, r=20, t=50, b=20)
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    st.info(f"💡 **현재 지수:** {current_price:,.2f} 포인트 ➔ **가상의 {ki_level}% 낙인선:** {ki_price:,.2f} 포인트\n\n위 그래프의 **빨간 점선**이 낙인선입니다. 과거 10년 동안 이 점선 밑으로 지수가 떨어진 적이 몇 번이나 있었는지 시각적으로 체크해 보세요.")
+                else:
+                    st.warning("데이터를 불러올 수 없습니다. 일시적인 야후 파이낸스 서버 오류일 수 있습니다.")
+            except Exception as e:
+                st.error(f"데이터를 불러오는 데 실패했습니다: {e}")
 
 except Exception as e:
     st.error(f"오류가 발생했습니다: {e}")
