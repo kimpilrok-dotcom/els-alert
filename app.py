@@ -53,12 +53,13 @@ def get_market_data():
             pass
     return hist_dict, end_date_str, start_13y_str
 
+# --- 💡[수정됨] 정확한 오류 원인을 화면에 띄워주고 JSON 구조를 보완하는 로직 ---
 def get_my_portfolio_risk():
     try:
-        # Streamlit 비밀 금고(Secrets)에서 토큰을 꺼내옵니다.
+        # 1. 토큰 유무 확인
         token = st.secrets.get("github_token", None)
-        
         if not token:
+            st.error("🔑 [연동 에러] Secrets에 'github_token'이 등록되지 않았거나 오타가 있습니다.")
             return None, None
             
         url = "https://raw.githubusercontent.com/kimpilrok-dotcom/my-portfolio-app/main/portfolio.json"
@@ -68,28 +69,48 @@ def get_my_portfolio_risk():
             "Accept": "application/vnd.github.v3.raw"
         }
         
+        # 2. GitHub 서버 응답 확인
         response = requests.get(url, headers=headers)
         
-        if response.status_code == 200:
-            data = response.json()
+        if response.status_code == 404:
+            st.error("📄 [연동 에러] portfolio.json 파일을 찾을 수 없습니다. 경로가 맞는지 확인해주세요.")
+            return None, None
+        elif response.status_code == 401:
+            st.error("🚫 [연동 에러] 권한이 없습니다. Secrets에 넣은 토큰이 만료되었거나 'repo' 권한 체크를 깜빡하셨을 수 있습니다.")
+            return None, None
+        elif response.status_code != 200:
+            st.error(f"⚠️ [연동 에러] 알 수 없는 연결 오류 (코드: {response.status_code})")
+            return None, None
             
-            ki_list = []
-            repay_list = []
-            for item in data:
+        # 3. 데이터 파싱
+        data = response.json()
+        
+        # 단일 중괄호 {} 로 된 데이터일 경우 대괄호 [] 리스트로 강제 변환하여 에러 방지
+        if isinstance(data, dict):
+            data = [data]
+            
+        ki_list = []
+        repay_list = []
+        for item in data:
+            if isinstance(item, dict):
                 ki = str(item.get("knock_in", "")).strip()
                 if ki.replace('.','',1).isdigit():
                     ki_list.append(float(ki))
                 repay = str(item.get("repay_cond_1", "")).strip()
                 if repay.replace('.','',1).isdigit():
                     repay_list.append(float(repay))
-            
-            avg_ki = sum(ki_list)/len(ki_list) if ki_list else 0
-            avg_repay = sum(repay_list)/len(repay_list) if repay_list else 0
-            return avg_ki, avg_repay
-        else:
+        
+        avg_ki = sum(ki_list)/len(ki_list) if ki_list else 0
+        avg_repay = sum(repay_list)/len(repay_list) if repay_list else 0
+        
+        if len(ki_list) == 0 and len(repay_list) == 0:
+            st.warning("⚠️ 파일은 성공적으로 가져왔으나, 낙인(KI)이나 상환조건 숫자를 읽지 못했습니다.")
             return None, None
             
+        return avg_ki, avg_repay
+        
     except Exception as e:
+        st.error(f"🛠️ [데이터 처리 오류] 원인: {e}")
         return None, None
 
 my_avg_ki, my_avg_repay = get_my_portfolio_risk()
@@ -302,7 +323,8 @@ try:
                     worst_asset = "노낙인 상품"
 
                 pf_msg = ""
-                if my_avg_ki and my_avg_repay:
+                # 💡 [수정됨] my_avg_ki 가 0일 때도 정상 작동하도록 비교 조건을 더 정교하게 변경했습니다.
+                if my_avg_ki is not None and my_avg_repay is not None:
                     if ki_val == 999.0:
                         pf_msg = f"<span style='color:#059669;'>🟢 내 평균 보유자산(KI {my_avg_ki:.1f}%)보다 안전한 노낙인 구조입니다.</span>"
                     else:
@@ -339,7 +361,7 @@ try:
                                 <b>1. 과거 13년 낙인 터치일:</b> <span>{worst_date}</span><br>
                                 <b>2. 13년 롤링 가중 낙인확률:</b> <span style="color:{prob_color}; font-weight:bold;">{worst_prob:.2f}%</span><br>
                                 <hr style="margin: 8px 0; border: none; border-top: 1px dashed #CBD5E1;">
-                                <b>3. 내 포트폴리오 비교 (보유 KI {my_avg_ki if my_avg_ki else 0:.1f}% / 상환 {my_avg_repay if my_avg_repay else 0:.1f}%)</b><br>
+                                <b>3. 내 포트폴리오 비교 (보유 KI {my_avg_ki if my_avg_ki is not None else 0:.1f}% / 상환 {my_avg_repay if my_avg_repay is not None else 0:.1f}%)</b><br>
                                 {pf_msg}
                             </div>
                         </div>
