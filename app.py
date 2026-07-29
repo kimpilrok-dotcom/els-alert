@@ -53,12 +53,12 @@ def get_market_data():
             pass
     return hist_dict, end_date_str, start_13y_str
 
-# --- 🎯 [완벽 수정됨] portfolio.json의 정확한 구조에 맞춘 로직 ---
+# --- 🎯 [수정됨] 개별 상품을 비교하기 위해 ELS 리스트 전체를 가져옵니다 ---
 def get_my_portfolio_risk():
     try:
         token = st.secrets.get("github_token", None)
         if not token:
-            return None, None
+            return None
             
         url = "https://raw.githubusercontent.com/kimpilrok-dotcom/my-portfolio-app/main/portfolio.json"
         headers = {
@@ -68,44 +68,46 @@ def get_my_portfolio_risk():
         
         response = requests.get(url, headers=headers)
         if response.status_code != 200:
-            return None, None
+            return None
             
         data = response.json()
         
-        # 1. 'manual_assets' 카테고리만 정확하게 타겟팅
         manual_assets = data.get("manual_assets", [])
         if not manual_assets:
-            return None, None
+            return []
             
-        ki_list = []
-        repay_list = []
-        
-        # 2. ELS 상품만 필터링하여 정확한 숫자 추출
+        my_els_list = []
         for item in manual_assets:
             if isinstance(item, dict) and item.get("asset_type") == "ELS":
                 ki_raw = str(item.get("knock_in", ""))
                 ki_nums = re.findall(r"[-+]?\d*\.?\d+", ki_raw)
-                if ki_nums:
-                    ki_list.append(float(ki_nums[0]))
+                ki_val = float(ki_nums[0]) if ki_nums else 999.0
                 
                 repay_raw = str(item.get("repay_cond_1", ""))
                 repay_nums = re.findall(r"[-+]?\d*\.?\d+", repay_raw)
-                if repay_nums:
-                    repay_list.append(float(repay_nums[0]))
+                repay_val = float(repay_nums[0]) if repay_nums else 999.0
+                
+                u1 = str(item.get("underlying_asset_1", "")).strip()
+                u2 = str(item.get("underlying_asset_2", "")).strip()
+                u3 = str(item.get("underlying_asset_3", "")).strip()
+                
+                my_assets = []
+                for u in [u1, u2, u3]:
+                    if u and u.lower() != 'nan':
+                        my_assets.append(u)
+                        
+                my_els_list.append({
+                    "assets": my_assets,
+                    "ki": ki_val,
+                    "repay": repay_val
+                })
         
-        # ELS 데이터가 없는 경우 연산 패스
-        if not ki_list or not repay_list:
-            return None, None
-            
-        avg_ki = sum(ki_list) / len(ki_list)
-        avg_repay = sum(repay_list) / len(repay_list)
-        
-        return avg_ki, avg_repay
+        return my_els_list
         
     except Exception as e:
-        return None, None
+        return None
 
-my_avg_ki, my_avg_repay = get_my_portfolio_risk()
+my_els_portfolio = get_my_portfolio_risk()
 
 with st.spinner("최신 지수와 ELS 데이터를 연동 중입니다... (최초 1회 소요)"):
     hist_dict, end_date_str, start_13y_str = get_market_data()
@@ -304,7 +306,6 @@ try:
                                         
                             prob = (knock_in_count / weighted_total) * 100 if weighted_total > 0 else 0
                             
-                            # 각 기초자산별 결과를 리스트에 차곡차곡 모아줍니다.
                             asset_stats.append({
                                 'ticker': matched_ticker,
                                 'touch_date': last_touch_dt if last_touch_dt else "없음",
@@ -314,7 +315,6 @@ try:
                             if prob > overall_worst_prob:
                                 overall_worst_prob = prob
                 
-                # 요청하신 형태( - HSCEI 2021..., KOSPI... )로 문자열 조합하기
                 if ki_val == 999.0:
                     date_str = "해당없음(노낙인)"
                     prob_str = "해당없음(노낙인)"
@@ -327,23 +327,49 @@ try:
                         date_str = "정보 없음 (종목형 등)"
                         prob_str = "정보 없음"
                         
-                    # 전체 확률 중 가장 높은 것을 기준으로 왼쪽 띠 색상을 결정합니다.
                     prob_color = "#DC2626" if overall_worst_prob > 20 else "#D97706" if overall_worst_prob > 5 else "#059669"
 
+                # --- 🎯 [수정됨] 3번 항목: 내 포트폴리오를 지수별로 세밀하게 비교합니다 ---
                 pf_msg = ""
-                if my_avg_ki is not None and my_avg_repay is not None:
-                    if ki_val == 999.0:
-                        pf_msg = f"<span style='color:#059669;'>🟢 내 평균 보유자산(KI {my_avg_ki:.1f}%)보다 안전한 노낙인 구조입니다.</span>"
-                    else:
-                        ki_diff = ki_val - my_avg_ki
-                        repay_diff = first_barrier_val - my_avg_repay
+                if my_els_portfolio is not None:
+                    total_my_els_count = len(my_els_portfolio)
+                    current_product_assets = [p.strip() for p in str(assets).split(',') if p.strip()]
+                    
+                    # 지수명 통일화 함수
+                    def normalize_asset(a):
+                        a = a.upper().replace(" ", "")
+                        if "홍콩" in a or "HSCEI" in a or "H지수" in a: return "HSCEI"
+                        if "KOSPI" in a or "코스피" in a: return "KOSPI200"
+                        if "NIKKEI" in a or "니케이" in a or "닛케이" in a: return "NIKKEI225"
+                        if "EURO" in a or "STOXX" in a or "유로" in a: return "EUROSTOXX50"
+                        if "S&P" in a or "SPX" in a or "에스앤피" in a: return "S&P500"
+                        return a
+                    
+                    comparison_lines = []
+                    for current_asset in current_product_assets:
+                        norm_current = normalize_asset(current_asset)
+                        matching_my_products = []
                         
-                        ki_status = f"<span style='color:#DC2626;'>🔴 더 위험 (+{ki_diff:.1f}%p)</span>" if ki_diff > 0 else f"<span style='color:#059669;'>🟢 더 안전 ({ki_diff:.1f}%p)</span>" if ki_diff < 0 else "🟡 동일 수준"
-                        repay_status = f"<span style='color:#DC2626;'>🔴 불리 (+{repay_diff:.1f}%p)</span>" if repay_diff > 0 else f"<span style='color:#059669;'>🟢 유리 ({repay_diff:.1f}%p)</span>" if repay_diff < 0 else "🟡 동일 수준"
-                        
-                        pf_msg = f"내 포트폴리오 대비 낙인위험도는 <b>{ki_status}</b>, 1차 상환조건은 <b>{repay_status}</b> 입니다."
+                        for my_els in my_els_portfolio:
+                            my_norm_assets = [normalize_asset(ma) for ma in my_els['assets']]
+                            if norm_current in my_norm_assets:
+                                matching_my_products.append(my_els)
+                                
+                        if matching_my_products:
+                            total_match_count = len(matching_my_products)
+                            # 내 상품의 낙인이 검색상품의 낙인보다 '더 높은(위험한)' 개수
+                            higher_ki_count = sum(1 for m in matching_my_products if m['ki'] != 999.0 and m['ki'] > ki_val)
+                            # 내 상품의 배리어가 검색상품의 배리어보다 '더 높은(불리한)' 개수
+                            higher_repay_count = sum(1 for m in matching_my_products if m['repay'] != 999.0 and m['repay'] > first_barrier_val)
+                            
+                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 {total_match_count}개, 낙인 {higher_ki_count}개, 배리어 {higher_repay_count}개</span><br>")
+                        else:
+                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 0개, 낙인 0개, 배리어 0개</span><br>")
+                            
+                    pf_msg = f"<b>3. 내 포트폴리오 비교 (내가 가입한 상품 수 {total_my_els_count}개)</b><br>" + "".join(comparison_lines)
                 else:
-                    pf_msg = "📂 <i>포트폴리오(portfolio.json) 토큰 미등록 혹은 연동 대기중입니다.</i>"
+                    pf_msg = "<b>3. 내 포트폴리오 비교</b><br><span style='display:inline-block; margin-left:8px;'>📂 <i>포트폴리오(portfolio.json) 연동 대기중입니다.</i></span>"
+
 
                 st.markdown(f'''
 <div style="padding: 18px; border: 1px solid #E5E7EB; border-radius: 12px; margin-bottom: 15px; background-color: #FFFFFF; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
@@ -367,7 +393,6 @@ try:
                 <b>2. 낙인 확률</b><br>
                 <span style="display:inline-block; margin-left:8px; color:{prob_color}; font-weight:bold;">- {prob_str}</span><br>
                 <hr style="margin: 8px 0; border: none; border-top: 1px dashed #CBD5E1;">
-                <b>3. 내 포트폴리오 비교 (보유 KI {my_avg_ki if my_avg_ki is not None else 0:.1f}% / 상환 {my_avg_repay if my_avg_repay is not None else 0:.1f}%)</b><br>
                 {pf_msg}
             </div>
         </div>
