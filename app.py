@@ -268,9 +268,8 @@ try:
                             if v.lower() != "nan" and v != "": sub_period = v
                             break
                 
-                worst_prob = 0.0
-                worst_date = "안전(이력없음)"
-                worst_asset = "종목형/정보없음"
+                overall_worst_prob = 0.0
+                asset_stats = []
                 
                 if ki_val != 999.0: 
                     asset_list = [p.strip() for p in str(assets).split(',')]
@@ -305,14 +304,31 @@ try:
                                         
                             prob = (knock_in_count / weighted_total) * 100 if weighted_total > 0 else 0
                             
-                            if prob > worst_prob:
-                                worst_prob = prob
-                                worst_asset = matched_ticker
-                                worst_date = last_touch_dt if last_touch_dt else "안전(이력없음)"
+                            # 각 기초자산별 결과를 리스트에 차곡차곡 모아줍니다.
+                            asset_stats.append({
+                                'ticker': matched_ticker,
+                                'touch_date': last_touch_dt if last_touch_dt else "없음",
+                                'prob': prob
+                            })
+                            
+                            if prob > overall_worst_prob:
+                                overall_worst_prob = prob
+                
+                # 요청하신 형태( - HSCEI 2021..., KOSPI... )로 문자열 조합하기
+                if ki_val == 999.0:
+                    date_str = "해당없음(노낙인)"
+                    prob_str = "해당없음(노낙인)"
+                    prob_color = "#059669"
                 else:
-                    worst_prob = 0.0
-                    worst_date = "해당없음(노낙인)"
-                    worst_asset = "노낙인 상품"
+                    if asset_stats:
+                        date_str = ", ".join([f"{s['ticker']} {s['touch_date']}" for s in asset_stats])
+                        prob_str = ", ".join([f"{s['ticker']} {s['prob']:.2f}%" for s in asset_stats])
+                    else:
+                        date_str = "정보 없음 (종목형 등)"
+                        prob_str = "정보 없음"
+                        
+                    # 전체 확률 중 가장 높은 것을 기준으로 왼쪽 띠 색상을 결정합니다.
+                    prob_color = "#DC2626" if overall_worst_prob > 20 else "#D97706" if overall_worst_prob > 5 else "#059669"
 
                 pf_msg = ""
                 if my_avg_ki is not None and my_avg_repay is not None:
@@ -329,8 +345,6 @@ try:
                 else:
                     pf_msg = "📂 <i>포트폴리오(portfolio.json) 토큰 미등록 혹은 연동 대기중입니다.</i>"
 
-                prob_color = "#DC2626" if worst_prob > 20 else "#D97706" if worst_prob > 5 else "#059669"
-
                 st.markdown(f'''
 <div style="padding: 18px; border: 1px solid #E5E7EB; border-radius: 12px; margin-bottom: 15px; background-color: #FFFFFF; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
     <h4 style="margin-top: 0px; margin-bottom: 12px; color: #1E3A8A; font-size: 18px;">{prod_name}</h4>
@@ -346,10 +360,12 @@ try:
             <b>조기상환배리어:</b> {barrier}
         </div>
         <div style="flex: 1; min-width: 300px; background-color: #F8FAFC; border-left: 4px solid {prob_color}; padding: 12px; border-radius: 6px; margin-top: 10px;">
-            <h5 style="margin:0 0 8px 0; color:#0F172A; font-size: 14px;">⚠️ 지표기반 위험도 분석 (Worst-Of: {worst_asset})</h5>
+            <h5 style="margin:0 0 8px 0; color:#0F172A; font-size: 14px;">⚠️ 지표기반 위험도 분석</h5>
             <div style="font-size: 13px; line-height: 1.6; color: #475569;">
-                <b>1. 과거 13년 낙인 터치일:</b> <span>{worst_date}</span><br>
-                <b>2. 13년 롤링 가중 낙인확률:</b> <span style="color:{prob_color}; font-weight:bold;">{worst_prob:.2f}%</span><br>
+                <b>1. 과거 13년 낙인 터치일</b><br>
+                <span style="display:inline-block; margin-left:8px;">- {date_str}</span><br>
+                <b>2. 낙인 확률</b><br>
+                <span style="display:inline-block; margin-left:8px; color:{prob_color}; font-weight:bold;">- {prob_str}</span><br>
                 <hr style="margin: 8px 0; border: none; border-top: 1px dashed #CBD5E1;">
                 <b>3. 내 포트폴리오 비교 (보유 KI {my_avg_ki if my_avg_ki is not None else 0:.1f}% / 상환 {my_avg_repay if my_avg_repay is not None else 0:.1f}%)</b><br>
                 {pf_msg}
