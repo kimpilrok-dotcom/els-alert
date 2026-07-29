@@ -53,64 +53,62 @@ def get_market_data():
             pass
     return hist_dict, end_date_str, start_13y_str
 
-# --- 💡[수정됨] 정확한 오류 원인을 화면에 띄워주고 JSON 구조를 보완하는 로직 ---
 def get_my_portfolio_risk():
     try:
-        # 1. 토큰 유무 확인
         token = st.secrets.get("github_token", None)
         if not token:
-            st.error("🔑 [연동 에러] Secrets에 'github_token'이 등록되지 않았거나 오타가 있습니다.")
             return None, None
             
         url = "https://raw.githubusercontent.com/kimpilrok-dotcom/my-portfolio-app/main/portfolio.json"
-        
         headers = {
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3.raw"
         }
         
-        # 2. GitHub 서버 응답 확인
         response = requests.get(url, headers=headers)
-        
-        if response.status_code == 404:
-            st.error("📄 [연동 에러] portfolio.json 파일을 찾을 수 없습니다. 경로가 맞는지 확인해주세요.")
-            return None, None
-        elif response.status_code == 401:
-            st.error("🚫 [연동 에러] 권한이 없습니다. Secrets에 넣은 토큰이 만료되었거나 'repo' 권한 체크를 깜빡하셨을 수 있습니다.")
-            return None, None
-        elif response.status_code != 200:
-            st.error(f"⚠️ [연동 에러] 알 수 없는 연결 오류 (코드: {response.status_code})")
+        if response.status_code != 200:
             return None, None
             
-        # 3. 데이터 파싱
         data = response.json()
         
-        # 단일 중괄호 {} 로 된 데이터일 경우 대괄호 [] 리스트로 강제 변환하여 에러 방지
-        if isinstance(data, dict):
-            data = [data]
-            
+        # 💡 [진단용 출력] 앱 상단에 실제 데이터를 출력합니다.
+        st.info("🔍 **[디버깅] 아래에 출력된 데이터를 복사해서 알려주세요!**")
+        st.write(data)
+        
+        # 데이터 구조 유연성 강화 (딕셔너리, 리스트 모두 대응)
+        items = []
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            # 특정 키 안에 리스트가 숨어있는 경우 찾기
+            for key, val in data.items():
+                if isinstance(val, list):
+                    items.extend(val)
+            # 그냥 딕셔너리 1개인 경우
+            if not items:
+                items = [data]
+                
         ki_list = []
         repay_list = []
-        for item in data:
+        for item in items:
             if isinstance(item, dict):
-                ki = str(item.get("knock_in", "")).strip()
-                if ki.replace('.','',1).isdigit():
-                    ki_list.append(float(ki))
-                repay = str(item.get("repay_cond_1", "")).strip()
-                if repay.replace('.','',1).isdigit():
-                    repay_list.append(float(repay))
+                # 어떠한 글자가 섞여있어도 숫자만 강제로 추출하는 강력한 정규식 적용
+                ki_raw = str(item.get("knock_in", item.get("낙인", "")))
+                ki_nums = re.findall(r"[-+]?\d*\.?\d+", ki_raw)
+                if ki_nums:
+                    ki_list.append(float(ki_nums[0]))
+                
+                repay_raw = str(item.get("repay_cond_1", item.get("조기상환조건", "")))
+                repay_nums = re.findall(r"[-+]?\d*\.?\d+", repay_raw)
+                if repay_nums:
+                    repay_list.append(float(repay_nums[0]))
         
         avg_ki = sum(ki_list)/len(ki_list) if ki_list else 0
         avg_repay = sum(repay_list)/len(repay_list) if repay_list else 0
         
-        if len(ki_list) == 0 and len(repay_list) == 0:
-            st.warning("⚠️ 파일은 성공적으로 가져왔으나, 낙인(KI)이나 상환조건 숫자를 읽지 못했습니다.")
-            return None, None
-            
         return avg_ki, avg_repay
         
     except Exception as e:
-        st.error(f"🛠️ [데이터 처리 오류] 원인: {e}")
         return None, None
 
 my_avg_ki, my_avg_repay = get_my_portfolio_risk()
@@ -323,8 +321,7 @@ try:
                     worst_asset = "노낙인 상품"
 
                 pf_msg = ""
-                # 💡 [수정됨] my_avg_ki 가 0일 때도 정상 작동하도록 비교 조건을 더 정교하게 변경했습니다.
-                if my_avg_ki is not None and my_avg_repay is not None:
+                if my_avg_ki and my_avg_repay:
                     if ki_val == 999.0:
                         pf_msg = f"<span style='color:#059669;'>🟢 내 평균 보유자산(KI {my_avg_ki:.1f}%)보다 안전한 노낙인 구조입니다.</span>"
                     else:
@@ -336,7 +333,7 @@ try:
                         
                         pf_msg = f"내 포트폴리오 대비 낙인위험도는 <b>{ki_status}</b>, 1차 상환조건은 <b>{repay_status}</b> 입니다."
                 else:
-                    pf_msg = "📂 <i>포트폴리오(portfolio.json) 토큰 미등록 혹은 연동 대기중입니다.</i>"
+                    pf_msg = "📂 <i>포트폴리오(portfolio.json) 토큰 미등록 혹은 데이터 인식 대기중입니다.</i>"
 
                 prob_color = "#DC2626" if worst_prob > 20 else "#D97706" if worst_prob > 5 else "#059669"
 
