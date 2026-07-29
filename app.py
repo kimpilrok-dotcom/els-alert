@@ -332,33 +332,32 @@ try:
                 prob_color = "#DC2626" if worst_prob > 20 else "#D97706" if worst_prob > 5 else "#059669"
 
                 st.markdown(f'''
-                <div style="padding: 18px; border: 1px solid #E5E7EB; border-radius: 12px; margin-bottom: 15px; background-color: #FFFFFF; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-                    <h4 style="margin-top: 0px; margin-bottom: 12px; color: #1E3A8A; font-size: 18px;">{prod_name}</h4>
-                    <div style="display: flex; justify-content: space-between; flex-wrap: wrap;">
-                        <div style="font-size: 15px; line-height: 1.8; color: #374151; flex: 1; min-width: 250px;">
-                            <b>통화:</b> {currency} <br>
-                            <b>기초자산:</b> {assets} <br>
-                            <b>낙인(KI):</b> <span style="color: #D97706; font-weight: bold;">{ki}</span> <br>
-                            <b>수익율:</b> <span style="color: #DC2626; font-weight: bold; text-decoration: underline;">{yield_val}</span> <br>
-                            <b>청약기간:</b> {sub_period} <br>
-                            <b>만기:</b> {maturity} <br>
-                            <b>조기상환주기:</b> {cycle} <br>
-                            <b>조기상환배리어:</b> {barrier}
-                        </div>
-                        
-                        <div style="flex: 1; min-width: 300px; background-color: #F8FAFC; border-left: 4px solid {prob_color}; padding: 12px; border-radius: 6px; margin-top: 10px;">
-                            <h5 style="margin:0 0 8px 0; color:#0F172A; font-size: 14px;">⚠️ 지표기반 위험도 분석 (Worst-Of: {worst_asset})</h5>
-                            <div style="font-size: 13px; line-height: 1.6; color: #475569;">
-                                <b>1. 과거 13년 낙인 터치일:</b> <span>{worst_date}</span><br>
-                                <b>2. 13년 롤링 가중 낙인확률:</b> <span style="color:{prob_color}; font-weight:bold;">{worst_prob:.2f}%</span><br>
-                                <hr style="margin: 8px 0; border: none; border-top: 1px dashed #CBD5E1;">
-                                <b>3. 내 포트폴리오 비교 (보유 KI {my_avg_ki if my_avg_ki is not None else 0:.1f}% / 상환 {my_avg_repay if my_avg_repay is not None else 0:.1f}%)</b><br>
-                                {pf_msg}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                ''', unsafe_allow_html=True)
+<div style="padding: 18px; border: 1px solid #E5E7EB; border-radius: 12px; margin-bottom: 15px; background-color: #FFFFFF; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+    <h4 style="margin-top: 0px; margin-bottom: 12px; color: #1E3A8A; font-size: 18px;">{prod_name}</h4>
+    <div style="display: flex; justify-content: space-between; flex-wrap: wrap;">
+        <div style="font-size: 15px; line-height: 1.8; color: #374151; flex: 1; min-width: 250px;">
+            <b>통화:</b> {currency} <br>
+            <b>기초자산:</b> {assets} <br>
+            <b>낙인(KI):</b> <span style="color: #D97706; font-weight: bold;">{ki}</span> <br>
+            <b>수익율:</b> <span style="color: #DC2626; font-weight: bold; text-decoration: underline;">{yield_val}</span> <br>
+            <b>청약기간:</b> {sub_period} <br>
+            <b>만기:</b> {maturity} <br>
+            <b>조기상환주기:</b> {cycle} <br>
+            <b>조기상환배리어:</b> {barrier}
+        </div>
+        <div style="flex: 1; min-width: 300px; background-color: #F8FAFC; border-left: 4px solid {prob_color}; padding: 12px; border-radius: 6px; margin-top: 10px;">
+            <h5 style="margin:0 0 8px 0; color:#0F172A; font-size: 14px;">⚠️ 지표기반 위험도 분석 (Worst-Of: {worst_asset})</h5>
+            <div style="font-size: 13px; line-height: 1.6; color: #475569;">
+                <b>1. 과거 13년 낙인 터치일:</b> <span>{worst_date}</span><br>
+                <b>2. 13년 롤링 가중 낙인확률:</b> <span style="color:{prob_color}; font-weight:bold;">{worst_prob:.2f}%</span><br>
+                <hr style="margin: 8px 0; border: none; border-top: 1px dashed #CBD5E1;">
+                <b>3. 내 포트폴리오 비교 (보유 KI {my_avg_ki if my_avg_ki is not None else 0:.1f}% / 상환 {my_avg_repay if my_avg_repay is not None else 0:.1f}%)</b><br>
+                {pf_msg}
+            </div>
+        </div>
+    </div>
+</div>
+''', unsafe_allow_html=True)
             
     with tab3:
         st.markdown("#### 📉 기초자산 10년 추이 및 현재가 기준 낙인선 분석")
