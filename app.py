@@ -53,6 +53,7 @@ def get_market_data():
             pass
     return hist_dict, end_date_str, start_13y_str
 
+# --- 🎯 [완벽 수정됨] portfolio.json의 정확한 구조에 맞춘 로직 ---
 def get_my_portfolio_risk():
     try:
         token = st.secrets.get("github_token", None)
@@ -71,40 +72,33 @@ def get_my_portfolio_risk():
             
         data = response.json()
         
-        # 💡 [진단용 출력] 앱 상단에 실제 데이터를 출력합니다.
-        st.info("🔍 **[디버깅] 아래에 출력된 데이터를 복사해서 알려주세요!**")
-        st.write(data)
-        
-        # 데이터 구조 유연성 강화 (딕셔너리, 리스트 모두 대응)
-        items = []
-        if isinstance(data, list):
-            items = data
-        elif isinstance(data, dict):
-            # 특정 키 안에 리스트가 숨어있는 경우 찾기
-            for key, val in data.items():
-                if isinstance(val, list):
-                    items.extend(val)
-            # 그냥 딕셔너리 1개인 경우
-            if not items:
-                items = [data]
-                
+        # 1. 'manual_assets' 카테고리만 정확하게 타겟팅
+        manual_assets = data.get("manual_assets", [])
+        if not manual_assets:
+            return None, None
+            
         ki_list = []
         repay_list = []
-        for item in items:
-            if isinstance(item, dict):
-                # 어떠한 글자가 섞여있어도 숫자만 강제로 추출하는 강력한 정규식 적용
-                ki_raw = str(item.get("knock_in", item.get("낙인", "")))
+        
+        # 2. ELS 상품만 필터링하여 정확한 숫자 추출
+        for item in manual_assets:
+            if isinstance(item, dict) and item.get("asset_type") == "ELS":
+                ki_raw = str(item.get("knock_in", ""))
                 ki_nums = re.findall(r"[-+]?\d*\.?\d+", ki_raw)
                 if ki_nums:
                     ki_list.append(float(ki_nums[0]))
                 
-                repay_raw = str(item.get("repay_cond_1", item.get("조기상환조건", "")))
+                repay_raw = str(item.get("repay_cond_1", ""))
                 repay_nums = re.findall(r"[-+]?\d*\.?\d+", repay_raw)
                 if repay_nums:
                     repay_list.append(float(repay_nums[0]))
         
-        avg_ki = sum(ki_list)/len(ki_list) if ki_list else 0
-        avg_repay = sum(repay_list)/len(repay_list) if repay_list else 0
+        # ELS 데이터가 없는 경우 연산 패스
+        if not ki_list or not repay_list:
+            return None, None
+            
+        avg_ki = sum(ki_list) / len(ki_list)
+        avg_repay = sum(repay_list) / len(repay_list)
         
         return avg_ki, avg_repay
         
@@ -321,7 +315,7 @@ try:
                     worst_asset = "노낙인 상품"
 
                 pf_msg = ""
-                if my_avg_ki and my_avg_repay:
+                if my_avg_ki is not None and my_avg_repay is not None:
                     if ki_val == 999.0:
                         pf_msg = f"<span style='color:#059669;'>🟢 내 평균 보유자산(KI {my_avg_ki:.1f}%)보다 안전한 노낙인 구조입니다.</span>"
                     else:
@@ -333,7 +327,7 @@ try:
                         
                         pf_msg = f"내 포트폴리오 대비 낙인위험도는 <b>{ki_status}</b>, 1차 상환조건은 <b>{repay_status}</b> 입니다."
                 else:
-                    pf_msg = "📂 <i>포트폴리오(portfolio.json) 토큰 미등록 혹은 데이터 인식 대기중입니다.</i>"
+                    pf_msg = "📂 <i>포트폴리오(portfolio.json) 토큰 미등록 혹은 연동 대기중입니다.</i>"
 
                 prob_color = "#DC2626" if worst_prob > 20 else "#D97706" if worst_prob > 5 else "#059669"
 
