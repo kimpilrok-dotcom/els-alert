@@ -36,24 +36,26 @@ TICKER_MAP = {
     "NASDAQ100": "^NDX"
 }
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)
 def get_market_data():
     KST = datetime.timezone(datetime.timedelta(hours=9))
     today_kst = datetime.datetime.now(KST).date()
-    end_date_str = today_kst.strftime('%Y-%m-%d')
+    
+    end_target = today_kst + datetime.timedelta(days=1)
+    end_date_str = end_target.strftime('%Y-%m-%d')
+    
     start_13y_str = (today_kst - datetime.timedelta(days=365*13 + 5)).strftime('%Y-%m-%d')
     
     hist_dict = {}
     for asset, ticker in TICKER_MAP.items():
         try:
             df = yf.Ticker(ticker).history(start=start_13y_str, end=end_date_str)
-            if 'Close' in df.columns:
+            if 'Close' in df.columns and not df.empty:
                 hist_dict[asset] = df[['Close']].dropna()
         except:
             pass
     return hist_dict, end_date_str, start_13y_str
 
-# --- 🎯 [수정됨] 개별 상품을 비교하기 위해 ELS 리스트 전체를 가져옵니다 ---
 def get_my_portfolio_risk():
     try:
         token = st.secrets.get("github_token", None)
@@ -329,13 +331,11 @@ try:
                         
                     prob_color = "#DC2626" if overall_worst_prob > 20 else "#D97706" if overall_worst_prob > 5 else "#059669"
 
-                # --- 🎯 [수정됨] 3번 항목: 내 포트폴리오를 지수별로 세밀하게 비교합니다 ---
                 pf_msg = ""
                 if my_els_portfolio is not None:
                     total_my_els_count = len(my_els_portfolio)
                     current_product_assets = [p.strip() for p in str(assets).split(',') if p.strip()]
                     
-                    # 지수명 통일화 함수
                     def normalize_asset(a):
                         a = a.upper().replace(" ", "")
                         if "홍콩" in a or "HSCEI" in a or "H지수" in a: return "HSCEI"
@@ -355,17 +355,14 @@ try:
                             if norm_current in my_norm_assets:
                                 matching_my_products.append(my_els)
                         
-                        # --- [추가된 부분] 현재가 및 조건별 가격 계산 ---
                         current_price_str = "-"
                         ki_price_str = "-"
                         barrier_price_str = "-"
                         
                         matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in current_asset.upper()), None)
                         if matched_ticker and matched_ticker in hist_dict:
-                            # 1. 야후 파이낸스 데이터 가져오기 (기본값)
                             current_price = float(hist_dict[matched_ticker]['Close'].iloc[-1])
                             
-                            # 🚨 2. [추측금물 완벽 해결] KOSPI200은 네이버 공식 API, NIKKEI225는 구글파이낸스 실시간 데이터로 직수입합니다.
                             if matched_ticker == "KOSPI200":
                                 try:
                                     api_url = "https://m.stock.naver.com/api/index/KPI200/basic"
@@ -377,14 +374,11 @@ try:
                                     
                             elif matched_ticker == "NIKKEI225":
                                 try:
-                                    # 구글 파이낸스의 니케이225 고유 주소에서 실시간 가격 추출
                                     res = requests.get("https://www.google.com/finance/quote/NI225:INDEXNIKKEI?hl=en", timeout=5)
-                                    # 구글 내부 데이터 속성인 data-last-price 값을 정확히 타겟팅
                                     m = re.search(r'data-last-price="([\d\.]+)"', res.text)
                                     if m:
                                         current_price = float(m.group(1))
                                     else:
-                                        # 예비용 2차 정규식 (화면 출력용 태그)
                                         m2 = re.search(r'class="YMlKec fxKbKc"[^>]*>([\d,\.]+)', res.text)
                                         if m2:
                                             current_price = float(m2.group(1).replace(',', ''))
@@ -400,22 +394,20 @@ try:
                                 
                             if first_barrier_val != 999.0:
                                 barrier_price_str = f"{current_price * (first_barrier_val / 100.0):,.2f}"
-                        # -----------------------------------------------
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
-                            # 내 상품의 낙인이 검색상품의 낙인보다 '더 낮은(안전한)' 개수
                             lower_ki_count = sum(1 for m in matching_my_products if m['ki'] != 999.0 and m['ki'] < ki_val)
-                            # 내 상품의 배리어가 검색상품의 배리어보다 '더 낮은(유리한)' 개수
                             lower_repay_count = sum(1 for m in matching_my_products if m['repay'] != 999.0 and m['repay'] < first_barrier_val)
                             
                             comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 {total_match_count}개({current_price_str}), 낙인 {lower_ki_count}개({ki_price_str}), 배리어 {lower_repay_count}개({barrier_price_str})</span><br>")
                         else:
                             comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 0개({current_price_str}), 낙인 0개({ki_price_str}), 배리어 0개({barrier_price_str})</span><br>")
                             
-                    # for문이 끝난 후 바깥으로 들여쓰기가 나와야 합니다.
                     pf_msg = f"<b>3. 내 포트폴리오 비교 (내가 가입한 상품 수 {total_my_els_count}개)</b><br>" + "".join(comparison_lines)
-                    
+                else:
+                    pf_msg = "<b>3. 내 포트폴리오 비교</b><br><span style='display:inline-block; margin-left:8px;'>📂 <i>포트폴리오(portfolio.json) 연동 대기중입니다.</i></span>"
+
                 st.markdown(f'''
 <div style="padding: 18px; border: 1px solid #E5E7EB; border-radius: 12px; margin-bottom: 15px; background-color: #FFFFFF; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
     <h4 style="margin-top: 0px; margin-bottom: 12px; color: #1E3A8A; font-size: 18px;">{prod_name}</h4>
