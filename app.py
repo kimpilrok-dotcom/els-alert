@@ -36,18 +36,22 @@ TICKER_MAP = {
     "NASDAQ100": "^NDX"
 }
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)  # 데이터 갱신 주기를 1시간(3600)에서 10분(600)으로 단축
 def get_market_data():
     KST = datetime.timezone(datetime.timedelta(hours=9))
     today_kst = datetime.datetime.now(KST).date()
-    end_date_str = today_kst.strftime('%Y-%m-%d')
+    
+    # 💡 yfinance는 설정한 종료일의 '전날'까지만 데이터를 가져오기 때문에 +1일을 해줍니다.
+    end_target = today_kst + datetime.timedelta(days=1)
+    end_date_str = end_target.strftime('%Y-%m-%d')
+    
     start_13y_str = (today_kst - datetime.timedelta(days=365*13 + 5)).strftime('%Y-%m-%d')
     
     hist_dict = {}
     for asset, ticker in TICKER_MAP.items():
         try:
             df = yf.Ticker(ticker).history(start=start_13y_str, end=end_date_str)
-            if 'Close' in df.columns:
+            if 'Close' in df.columns and not df.empty:
                 hist_dict[asset] = df[['Close']].dropna()
         except:
             pass
