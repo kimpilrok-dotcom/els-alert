@@ -362,24 +362,23 @@ try:
                         
                         matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in current_asset.upper()), None)
                         if matched_ticker and matched_ticker in hist_dict:
-                            # 1. 기본적으로 야후 파이낸스 데이터를 가져옵니다.
+                            # 1. 야후 파이낸스 데이터 가져오기
                             current_price = float(hist_dict[matched_ticker]['Close'].iloc[-1])
                             
-                            # 🚨 2. KOSPI200은 야후 데이터 오류 대비 네이버 실시간 종가로 덮어씌웁니다.
+                            # 🚨 2. [추측금물 완벽 해결] HTML 태그 스크래핑을 폐기하고, 공식 JSON API 데이터를 직수입합니다.
                             if matched_ticker == "KOSPI200":
                                 try:
-                                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-                                    res = requests.get("https://finance.naver.com/sise/sise_index.naver?code=KPI200", headers=headers, timeout=5)
-                                    res.raise_for_status()
-                                    
-                                    # 💡 [핵심 수정] 네이버 금융 '지수' 페이지의 현재가 태그는 'now_value_01' 입니다!
-                                    m = re.search(r'id="now_value_01"[^>]*>([\d,\.]+)', res.text)
-                                    if m:
-                                        current_price = float(m.group(1).replace(',', ''))
+                                    # 네이버 증권 모바일 공식 API (구조가 변하지 않는 순수 데이터 서버)
+                                    api_url = "https://m.stock.naver.com/api/index/KPI200/basic"
+                                    res = requests.get(api_url, timeout=5)
+                                    if res.status_code == 200:
+                                        data = res.json()
+                                        # JSON 데이터에서 정확한 현재가 추출 (예: "1,046.81" -> 1046.81)
+                                        current_price = float(data['closePrice'].replace(',', ''))
                                     else:
-                                        st.error("⚠️ KOSPI200 가격을 네이버에서 찾지 못했습니다. (정규식 실패)")
+                                        st.error(f"⚠️ KOSPI200 API 응답 에러 (코드: {res.status_code})")
                                 except Exception as e:
-                                    st.error(f"⚠️ KOSPI200 스크래핑 차단됨: {e}")
+                                    st.error(f"⚠️ KOSPI200 API 연결 실패: {e}")
                             
                             current_price_str = f"{current_price:,.2f}"
                             
