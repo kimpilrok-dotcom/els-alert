@@ -362,23 +362,26 @@ try:
                         
                         matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in current_asset.upper()), None)
                         if matched_ticker and matched_ticker in hist_dict:
-                            # 1. 야후 파이낸스 데이터 가져오기
+                            # 1. 야후 파이낸스 데이터 가져오기 (기본값)
                             current_price = float(hist_dict[matched_ticker]['Close'].iloc[-1])
                             
-                            # 🚨 2. [추측금물 완벽 해결] HTML 태그 스크래핑을 폐기하고, 공식 JSON API 데이터를 직수입합니다.
+                            # 🚨 2. [추측금물 완벽 해결] 야후 데이터가 멈춰있는 KOSPI200과 NIKKEI225는 네이버 공식 JSON API에서 직수입합니다.
+                            api_url = None
                             if matched_ticker == "KOSPI200":
+                                api_url = "https://m.stock.naver.com/api/index/KPI200/basic"
+                            elif matched_ticker == "NIKKEI225":
+                                api_url = "https://m.stock.naver.com/api/index/NII@NI225/basic"
+                                
+                            if api_url:
                                 try:
-                                    # 네이버 증권 모바일 공식 API (구조가 변하지 않는 순수 데이터 서버)
-                                    api_url = "https://m.stock.naver.com/api/index/KPI200/basic"
                                     res = requests.get(api_url, timeout=5)
                                     if res.status_code == 200:
                                         data = res.json()
-                                        # JSON 데이터에서 정확한 현재가 추출 (예: "1,046.81" -> 1046.81)
                                         current_price = float(data['closePrice'].replace(',', ''))
                                     else:
-                                        st.error(f"⚠️ KOSPI200 API 응답 에러 (코드: {res.status_code})")
+                                        st.error(f"⚠️ {matched_ticker} API 응답 에러 (코드: {res.status_code})")
                                 except Exception as e:
-                                    st.error(f"⚠️ KOSPI200 API 연결 실패: {e}")
+                                    st.error(f"⚠️ {matched_ticker} API 연결 실패: {e}")
                             
                             current_price_str = f"{current_price:,.2f}"
                             
