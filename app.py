@@ -357,15 +357,14 @@ try:
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
-                            # 내 상품의 낙인이 검색상품의 낙인보다 '더 높은(위험한)' 개수
-                            higher_ki_count = sum(1 for m in matching_my_products if m['ki'] != 999.0 and m['ki'] > ki_val)
-                            # 내 상품의 배리어가 검색상품의 배리어보다 '더 높은(불리한)' 개수
-                            higher_repay_count = sum(1 for m in matching_my_products if m['repay'] != 999.0 and m['repay'] > first_barrier_val)
+                            # 내 상품의 낙인이 검색상품의 낙인보다 '더 낮은(안전한)' 개수로 변경 (< 사용)
+                            lower_ki_count = sum(1 for m in matching_my_products if m['ki'] != 999.0 and m['ki'] < ki_val)
+                            # 내 상품의 배리어가 검색상품의 배리어보다 '더 낮은(유리한)' 개수로 변경 (< 사용)
+                            lower_repay_count = sum(1 for m in matching_my_products if m['repay'] != 999.0 and m['repay'] < first_barrier_val)
                             
-                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 {total_match_count}개, 낙인 {higher_ki_count}개, 배리어 {higher_repay_count}개</span><br>")
+                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 {total_match_count}개, 낙인 {lower_ki_count}개, 배리어 {lower_repay_count}개</span><br>")
                         else:
-                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 0개, 낙인 0개, 배리어 0개</span><br>")
-                            
+                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 0개, 낙인 0개, 배리어 0개</span><br>")                            
                     pf_msg = f"<b>3. 내 포트폴리오 비교 (내가 가입한 상품 수 {total_my_els_count}개)</b><br>" + "".join(comparison_lines)
                 else:
                     pf_msg = "<b>3. 내 포트폴리오 비교</b><br><span style='display:inline-block; margin-left:8px;'>📂 <i>포트폴리오(portfolio.json) 연동 대기중입니다.</i></span>"
