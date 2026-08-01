@@ -365,23 +365,31 @@ try:
                             # 1. 야후 파이낸스 데이터 가져오기 (기본값)
                             current_price = float(hist_dict[matched_ticker]['Close'].iloc[-1])
                             
-                            # 🚨 2. [추측금물 완벽 해결] 야후 데이터가 멈춰있는 KOSPI200과 NIKKEI225는 네이버 공식 JSON API에서 직수입합니다.
-                            api_url = None
+                            # 🚨 2. [추측금물 완벽 해결] KOSPI200은 네이버 공식 API, NIKKEI225는 구글파이낸스 실시간 데이터로 직수입합니다.
                             if matched_ticker == "KOSPI200":
-                                api_url = "https://m.stock.naver.com/api/index/KPI200/basic"
-                            elif matched_ticker == "NIKKEI225":
-                                api_url = "https://m.stock.naver.com/api/index/NII@NI225/basic"
-                                
-                            if api_url:
                                 try:
+                                    api_url = "https://m.stock.naver.com/api/index/KPI200/basic"
                                     res = requests.get(api_url, timeout=5)
                                     if res.status_code == 200:
-                                        data = res.json()
-                                        current_price = float(data['closePrice'].replace(',', ''))
+                                        current_price = float(res.json()['closePrice'].replace(',', ''))
+                                except:
+                                    pass
+                                    
+                            elif matched_ticker == "NIKKEI225":
+                                try:
+                                    # 구글 파이낸스의 니케이225 고유 주소에서 실시간 가격 추출
+                                    res = requests.get("https://www.google.com/finance/quote/NI225:INDEXNIKKEI?hl=en", timeout=5)
+                                    # 구글 내부 데이터 속성인 data-last-price 값을 정확히 타겟팅
+                                    m = re.search(r'data-last-price="([\d\.]+)"', res.text)
+                                    if m:
+                                        current_price = float(m.group(1))
                                     else:
-                                        st.error(f"⚠️ {matched_ticker} API 응답 에러 (코드: {res.status_code})")
-                                except Exception as e:
-                                    st.error(f"⚠️ {matched_ticker} API 연결 실패: {e}")
+                                        # 예비용 2차 정규식 (화면 출력용 태그)
+                                        m2 = re.search(r'class="YMlKec fxKbKc"[^>]*>([\d,\.]+)', res.text)
+                                        if m2:
+                                            current_price = float(m2.group(1).replace(',', ''))
+                                except:
+                                    pass
                             
                             current_price_str = f"{current_price:,.2f}"
                             
