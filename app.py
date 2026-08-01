@@ -365,21 +365,20 @@ try:
                             # 1. 기본적으로 야후 파이낸스 데이터를 가져옵니다.
                             current_price = float(hist_dict[matched_ticker]['Close'].iloc[-1])
                             
-                            # 🚨 2. KOSPI200은 야후 데이터가 고장났으므로 네이버 실시간 종가로 덮어씌웁니다.
+                            # 🚨 2. KOSPI200은 야후 데이터 오류 대비 네이버 실시간 종가로 덮어씌웁니다.
                             if matched_ticker == "KOSPI200":
                                 try:
-                                    # 네이버 봇 차단을 방지하기 위해 일반 크롬 브라우저인 것처럼 헤더(User-Agent)를 위장합니다.
                                     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
                                     res = requests.get("https://finance.naver.com/sise/sise_index.naver?code=KPI200", headers=headers, timeout=5)
-                                    res.raise_for_status() # 접속 실패 시 즉각 에러 발생
+                                    res.raise_for_status()
                                     
-                                    m = re.search(r'id="now_value"[^>]*>([\d,\.]+)', res.text)
+                                    # 💡 [핵심 수정] 네이버 금융 '지수' 페이지의 현재가 태그는 'now_value_01' 입니다!
+                                    m = re.search(r'id="now_value_01"[^>]*>([\d,\.]+)', res.text)
                                     if m:
                                         current_price = float(m.group(1).replace(',', ''))
                                     else:
                                         st.error("⚠️ KOSPI200 가격을 네이버에서 찾지 못했습니다. (정규식 실패)")
                                 except Exception as e:
-                                    # 실패 시 화면에 빨간색 에러 메시지를 띄워 원인을 즉각 확인합니다.
                                     st.error(f"⚠️ KOSPI200 스크래핑 차단됨: {e}")
                             
                             current_price_str = f"{current_price:,.2f}"
