@@ -355,11 +355,14 @@ try:
                             if norm_current in my_norm_assets:
                                 matching_my_products.append(my_els)
                         
+                        # --- [추가/수정된 부분] 현재가 및 조건별 가격 계산 ---
                         current_price_str = "-"
                         ki_price_str = "-"
                         barrier_price_str = "-"
                         
-                        matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in current_asset.upper()), None)
+                        # 💡 [핵심 수정] 띄어쓰기("Euro Stoxx" 등) 때문에 지수를 인식하지 못하는 문제를 해결하기 위해 공백이 제거된 norm_current를 기준으로 매칭합니다.
+                        matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in norm_current.upper()), None)
+                        
                         if matched_ticker and matched_ticker in hist_dict:
                             current_price = float(hist_dict[matched_ticker]['Close'].iloc[-1])
                             
@@ -394,6 +397,7 @@ try:
                                 
                             if first_barrier_val != 999.0:
                                 barrier_price_str = f"{current_price * (first_barrier_val / 100.0):,.2f}"
+                        # -----------------------------------------------
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
