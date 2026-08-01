@@ -354,18 +354,36 @@ try:
                             my_norm_assets = [normalize_asset(ma) for ma in my_els['assets']]
                             if norm_current in my_norm_assets:
                                 matching_my_products.append(my_els)
+                        
+                        # --- [추가된 부분] 현재가 및 조건별 가격 계산 ---
+                        current_price_str = "-"
+                        ki_price_str = "-"
+                        barrier_price_str = "-"
+                        
+                        matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in current_asset.upper()), None)
+                        if matched_ticker and matched_ticker in hist_dict:
+                            current_price = float(hist_dict[matched_ticker]['Close'].iloc[-1])
+                            current_price_str = f"{current_price:,.2f}"
+                            
+                            if ki_val != 999.0:
+                                ki_price_str = f"{current_price * (ki_val / 100.0):,.2f}"
+                            else:
+                                ki_price_str = "노낙인"
+                                
+                            if first_barrier_val != 999.0:
+                                barrier_price_str = f"{current_price * (first_barrier_val / 100.0):,.2f}"
+                        # -----------------------------------------------
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
-                            # 내 상품의 낙인이 검색상품의 낙인보다 '더 낮은(안전한)' 개수로 변경 (< 사용)
+                            # 내 상품의 낙인이 검색상품의 낙인보다 '더 낮은(안전한)' 개수
                             lower_ki_count = sum(1 for m in matching_my_products if m['ki'] != 999.0 and m['ki'] < ki_val)
-                            # 내 상품의 배리어가 검색상품의 배리어보다 '더 낮은(유리한)' 개수로 변경 (< 사용)
+                            # 내 상품의 배리어가 검색상품의 배리어보다 '더 낮은(유리한)' 개수
                             lower_repay_count = sum(1 for m in matching_my_products if m['repay'] != 999.0 and m['repay'] < first_barrier_val)
                             
-                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 {total_match_count}개, 낙인 {lower_ki_count}개, 배리어 {lower_repay_count}개</span><br>")
+                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 {total_match_count}개({current_price_str}), 낙인 {lower_ki_count}개({ki_price_str}), 배리어 {lower_repay_count}개({barrier_price_str})</span><br>")
                         else:
-                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 0개, 낙인 0개, 배리어 0개</span><br>")                            
-                    pf_msg = f"<b>3. 내 포트폴리오 비교 (내가 가입한 상품 수 {total_my_els_count}개)</b><br>" + "".join(comparison_lines)
+                            comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 0개({current_price_str}), 낙인 0개({ki_price_str}), 배리어 0개({barrier_price_str})</span><br>")                    pf_msg = f"<b>3. 내 포트폴리오 비교 (내가 가입한 상품 수 {total_my_els_count}개)</b><br>" + "".join(comparison_lines)
                 else:
                     pf_msg = "<b>3. 내 포트폴리오 비교</b><br><span style='display:inline-block; margin-left:8px;'>📂 <i>포트폴리오(portfolio.json) 연동 대기중입니다.</i></span>"
 
