@@ -36,22 +36,18 @@ TICKER_MAP = {
     "NASDAQ100": "^NDX"
 }
 
-@st.cache_data(ttl=600)  # 데이터 갱신 주기를 1시간(3600)에서 10분(600)으로 단축
+@st.cache_data(ttl=3600)
 def get_market_data():
     KST = datetime.timezone(datetime.timedelta(hours=9))
     today_kst = datetime.datetime.now(KST).date()
-    
-    # 💡 yfinance는 설정한 종료일의 '전날'까지만 데이터를 가져오기 때문에 +1일을 해줍니다.
-    end_target = today_kst + datetime.timedelta(days=1)
-    end_date_str = end_target.strftime('%Y-%m-%d')
-    
+    end_date_str = today_kst.strftime('%Y-%m-%d')
     start_13y_str = (today_kst - datetime.timedelta(days=365*13 + 5)).strftime('%Y-%m-%d')
     
     hist_dict = {}
     for asset, ticker in TICKER_MAP.items():
         try:
             df = yf.Ticker(ticker).history(start=start_13y_str, end=end_date_str)
-            if 'Close' in df.columns and not df.empty:
+            if 'Close' in df.columns:
                 hist_dict[asset] = df[['Close']].dropna()
         except:
             pass
@@ -359,7 +355,24 @@ try:
                             if norm_current in my_norm_assets:
                                 matching_my_products.append(my_els)
                         
-                        current_price_str = "-
+                        # --- [추가된 부분] 현재가 및 조건별 가격 계산 ---
+                        current_price_str = "-"
+                        ki_price_str = "-"
+                        barrier_price_str = "-"
+                        
+                        matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in current_asset.upper()), None)
+                        if matched_ticker and matched_ticker in hist_dict:
+                            current_price = float(hist_dict[matched_ticker]['Close'].iloc[-1])
+                            current_price_str = f"{current_price:,.2f}"
+                            
+                            if ki_val != 999.0:
+                                ki_price_str = f"{current_price * (ki_val / 100.0):,.2f}"
+                            else:
+                                ki_price_str = "노낙인"
+                                
+                            if first_barrier_val != 999.0:
+                                barrier_price_str = f"{current_price * (first_barrier_val / 100.0):,.2f}"
+                        # -----------------------------------------------
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
