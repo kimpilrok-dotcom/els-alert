@@ -105,11 +105,27 @@ def get_my_portfolio_risk():
                         my_assets.append(u)
                 
                 if my_assets:
-                    my_els_list.append({
+                    # 🎯 팩트 반영: 나중에 절대지수를 계산할 수 있도록 기준가(base_price)와 자산명(underlying_asset)을 함께 저장합니다.
+                    append_item = {
+                        "name": item.get("name", "이름없음"),
                         "assets": my_assets,
                         "ki": ki_val,
                         "repay": repay_val
-                    })
+                    }
+                    
+                    for i in range(1, 4):
+                        # 원본 JSON에 있는 기초자산명과 기준가를 그대로 가져와 저장
+                        asset_name = item.get(f"underlying_asset_{i}", item.get(f"기초자산{i}", ""))
+                        
+                        # 기준가가 NaN(결측치)이거나 없는 경우 0.0으로 처리
+                        price_val = item.get(f"base_price_{i}", 0.0)
+                        if str(price_val).lower() == 'nan':
+                            price_val = 0.0
+                            
+                        append_item[f"underlying_asset_{i}"] = asset_name
+                        append_item[f"base_price_{i}"] = float(price_val)
+                    
+                    my_els_list.append(append_item)
         
         return my_els_list
         
