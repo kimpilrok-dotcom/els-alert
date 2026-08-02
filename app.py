@@ -434,13 +434,8 @@ try:
                             lower_ki_count = 0
                             lower_repay_count = 0
                             
-                            # --- [임시 디버깅 코드 시작] 결과를 모을 리스트 ---
-                            debug_log = []
-                            # --- [임시 디버깅 코드 끝] ---
-                            
                             for m in matching_my_products:
                                 m_base_price = 0.0
-                                matched_asset = "매칭실패"
                                 
                                 for i in range(1, 4):
                                     asset_key = f"underlying_asset_{i}"
@@ -449,7 +444,6 @@ try:
                                     my_asset_name = str(m.get(asset_key, '')).upper()
                                     if my_asset_name and (my_asset_name in current_asset.upper() or current_asset.upper() in my_asset_name):
                                         m_base_price = float(m.get(price_key, 0.0))
-                                        matched_asset = my_asset_name
                                         break
                                 
                                 m_abs_ki = 0.0
@@ -462,28 +456,12 @@ try:
                                     
                                     if m.get('repay', 999.0) != 999.0 and m_abs_repay < current_abs_barrier:
                                         lower_repay_count += 1
-                                        
-                                # --- [임시 디버깅 코드 시작] 매 상품마다 파이썬이 쥔 숫자를 기록 ---
-                                debug_log.append({
-                                    "상품명": m.get('name', '이름없음'),
-                                    "매칭된자산": matched_asset,
-                                    "기준가": m_base_price,
-                                    "KI퍼센트": m.get('ki'),
-                                    "계산된_절대KI": m_abs_ki
-                                })
-                                # --- [임시 디버깅 코드 끝] ---
-                            
-                            # --- [임시 디버깅 코드 시작] 루프 종료 후 화면에 출력 ---
-                            st.write(f"🚨 [디버깅] 현재 비교 자산: {current_asset} | 현재상품 절대 KI 기준값: {current_abs_ki}")
-                            st.write(debug_log)
-                            # --- [임시 디버깅 코드 끝] ---
                             
                             comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 {total_match_count}개({current_price_str}), 낙인 {lower_ki_count}개({ki_price_str}), 배리어 {lower_repay_count}개({barrier_price_str})</span><br>")
                         else:
                             comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 0개({current_price_str}), 낙인 0개({ki_price_str}), 배리어 0개({barrier_price_str})</span><br>")
                             
                     pf_msg = f"<b>3. 내 포트폴리오 비교 (내가 가입한 상품 수 {total_my_els_count}개)</b><br>" + "".join(comparison_lines)
-
                 
                 st.markdown(f'''
 <div style="padding: 18px; border: 1px solid #E5E7EB; border-radius: 12px; margin-bottom: 15px; background-color: #FFFFFF; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
