@@ -405,7 +405,7 @@ try:
                                 
                             if first_barrier_val != 999.0:
                                 barrier_price_str = f"{current_price * (first_barrier_val / 100.0):,.2f}"
-                        # -----------------------------------------------
+                        
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
