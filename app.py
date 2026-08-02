@@ -405,7 +405,7 @@ try:
                                 
                             if first_barrier_val != 999.0:
                                 barrier_price_str = f"{current_price * (first_barrier_val / 100.0):,.2f}"
-                        
+                        # -----------------------------------------------
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
@@ -578,7 +578,7 @@ try:
                                     
                         probability = (knock_in_count / weighted_total) * 100 if weighted_total > 0 else 0
                         
-                        st.markdown("")
+                        st.markdown("---")
                         res_col1, res_col2, res_col3 = st.columns(3)
                         res_col1.metric("총 시뮬레이션 일수", f"{total_sim_days:,}일")
                         res_col2.metric(f"낙인(KI) 도달 횟수", f"{int(knock_in_count):,}회", delta_color="inverse")
