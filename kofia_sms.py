@@ -3,7 +3,6 @@ import re
 from kofia_els import automate_download, parse_kofia_file
 
 def get_filtered_els():
-    # 앱과 100% 동일한 로직으로 데이터를 다운받고 분석합니다.
     file_path = automate_download()
     if not file_path:
         return None
@@ -12,19 +11,22 @@ def get_filtered_els():
     if df is None or df.empty:
         return None
     
-    # 앱과 완벽하게 동일한 기준으로 '지수형'만 필터링합니다.
     if "유형" in df.columns:
         df = df[df["유형"] == "지수형"]
         
-    # 💡 HTML 태그(<br>, <br/> 등)를 제거하는 내부 함수
+    # 💡 HTML 태그(<br> 등) 제거 및 'Index' 글자 제거를 함께 수행하는 함수
     def clean_html(val):
         if val is None or pd.isna(val):
             return "-"
-        return re.sub(r'<br\s*/?>', ' ', str(val), flags=re.IGNORECASE).strip()
+        # 1. HTML 태그 제거
+        cleaned = re.sub(r'<br\s*/?>', ' ', str(val), flags=re.IGNORECASE)
+        # 2. 'Index' 단어 제거 (대소문자 무시)
+        cleaned = re.sub(r'\bIndex\b', '', cleaned, flags=re.IGNORECASE)
+        # 3. 불필요한 여백 정리
+        return re.sub(r'\s+', ' ', cleaned).strip()
         
     result_list = []
     for i, row in df.iterrows():
-        # 수익률 파싱
         yield_str = "0"
         for col in row.index:
             if "수익" in str(col):
@@ -39,7 +41,6 @@ def get_filtered_els():
         try: yield_num = float(re.sub(r"[^\d\.]", "", yield_str))
         except: yield_num = 0.0
         
-        # 청약기간 파싱
         start_date, end_date = "", ""
         for col in row.index:
             if "청약" in str(col) and "시작" in str(col):
@@ -59,7 +60,6 @@ def get_filtered_els():
                     if v.lower() != "nan" and v != "": sub_period = v
                     break
         
-        # 문자 발송을 위한 포맷팅 (clean_html 적용)
         result_list.append({
             "상품명": clean_html(row.get("상품명", "-")),
             "기초자산": clean_html(row.get("기초자산", "-")),
