@@ -409,6 +409,14 @@ try:
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
+
+                            # --- [임시 디버깅 코드 시작] ---
+                            st.write(f"🚨 [디버깅] 현재 상품의 KI 기준값 (ki_val) : {ki_val}")
+                            st.write("👉 [디버깅] 내 포트폴리오 상품들의 KI 값 목록 :", [m.get('ki') for m in matching_my_products])
+                            # --- [임시 디버깅 코드 끝] ---
+                            
+                            lower_ki_count = sum(1 for m in matching_my_products if m['ki'] != 999.0 and m['ki'] < ki_val)
+                            
                             lower_ki_count = sum(1 for m in matching_my_products if m['ki'] != 999.0 and m['ki'] < ki_val)
                             lower_repay_count = sum(1 for m in matching_my_products if m['repay'] != 999.0 and m['repay'] < first_barrier_val)
                             
