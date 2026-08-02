@@ -11,7 +11,13 @@ def get_filtered_els():
     # 앱과 완벽하게 동일한 기준으로 '지수형'만 필터링합니다.
     if "유형" in df.columns:
         df = df[df["유형"] == "지수형"]
-        
+
+# 💡 HTML 태그(<br>, <br/> 등)를 제거하는 함수 추가
+def clean_html(val):
+    if val is None or pd.isna(val):
+        return "-"
+    return re.sub(r'<br\s*/?>', ' ', str(val), flags=re.IGNORECASE).strip()
+    
     result_list = []
     for i, row in df.iterrows():
         # 수익률 파싱
@@ -51,16 +57,16 @@ def get_filtered_els():
         
         # 문자 발송(main.py)을 위한 포맷팅
         result_list.append({
-            "상품명": str(row.get("상품명", "-")),
-            "기초자산": str(row.get("기초자산", "-")),
-            "낙인(KI)": str(row.get("낙인(KI)", "노낙인")),
+            "상품명": clean_html(row.get("상품명", "-")),
+            "기초자산": clean_html(row.get("기초자산", "-")),
+            "낙인(KI)": clean_html(row.get("낙인(KI)", "노낙인")),
             "수익률": yield_num,
             "수익률_텍스트": f"{yield_num}%",
-            "청약기간": sub_period,
-            "발행회사": str(row.get("발행회사", "-")),
-            "만기": str(row.get("만기", "-")),
-            "조기상환주기": str(row.get("조기상환주기", "-")),
-            "조기상환배리어": str(row.get("조기상환배리어", "-"))
+            "청약기간": clean_html(sub_period),
+            "발행회사": clean_html(row.get("발행회사", "-")),
+            "만기": clean_html(row.get("만기", "-")),
+            "조기상환주기": clean_html(row.get("조기상환주기", "-")),
+            "조기상환배리어": clean_html(row.get("조기상환배리어", "-"))
         })
         
     final_df = pd.DataFrame(result_list)
