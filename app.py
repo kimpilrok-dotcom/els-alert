@@ -368,8 +368,6 @@ try:
                         if "EURO" in a or "STOXX" in a or "유로" in a: return "EUROSTOXX50"
                         if "S&P" in a or "SPX" in a or "에스앤피" in a: return "S&P500"
                         return a
-
-                    st.write("🚨 [디버깅] 내 포트폴리오 첫 번째 상품의 데이터 구조:", my_els_portfolio[0])
                     
                     comparison_lines = []
                     for current_asset in current_product_assets:
