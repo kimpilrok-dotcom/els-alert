@@ -145,7 +145,8 @@ try:
 
     if "유형" in raw_df.columns:
         type_options = raw_df["유형"].unique().tolist()
-        selected_types = st.sidebar.multiselect("✅ 기초자산 유형", type_options, default=type_options)
+        # 💡 default 값을 리스트 형태로 ["지수형"]만 지정합니다.
+        selected_types = st.sidebar.multiselect("✅ 기초자산 유형", type_options, default=["지수형"])
         if selected_types:
             filtered_df = filtered_df[filtered_df["유형"].isin(selected_types)]
 
