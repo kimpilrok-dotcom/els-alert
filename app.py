@@ -110,11 +110,7 @@ def get_my_portfolio_risk():
                         "ki": ki_val,
                         "repay": repay_val
                     })
-                    
-        # 임시 디버깅 코드 3단계: KOSPI200을 포함하는 23개 상품의 '실제 이름' 목록 출력
-        kospi_list = [item.get("name", "이름없음") for item in manual_assets if "KOSPI" in str(item).upper()]
-        st.write("🚨 els-alert KOSPI200 상품 목록 (23개):", kospi_list)
-        
+                            
         return my_els_list
         
     except Exception as e:
