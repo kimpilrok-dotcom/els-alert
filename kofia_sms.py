@@ -1,23 +1,27 @@
 import pandas as pd
 import re
-# 💡 [핵심] 앱(검색기)을 구동하는 최신 분석 엔진을 그대로 끌어와서 사용합니다!
 from kofia_els import automate_download, parse_kofia_file
 
 def get_filtered_els():
     # 앱과 100% 동일한 로직으로 데이터를 다운받고 분석합니다.
     file_path = automate_download()
+    if not file_path:
+        return None
+        
     df = parse_kofia_file(file_path)
+    if df is None or df.empty:
+        return None
     
     # 앱과 완벽하게 동일한 기준으로 '지수형'만 필터링합니다.
     if "유형" in df.columns:
         df = df[df["유형"] == "지수형"]
-
-# 💡 HTML 태그(<br>, <br/> 등)를 제거하는 함수 추가
-def clean_html(val):
-    if val is None or pd.isna(val):
-        return "-"
-    return re.sub(r'<br\s*/?>', ' ', str(val), flags=re.IGNORECASE).strip()
-    
+        
+    # 💡 HTML 태그(<br>, <br/> 등)를 제거하는 내부 함수
+    def clean_html(val):
+        if val is None or pd.isna(val):
+            return "-"
+        return re.sub(r'<br\s*/?>', ' ', str(val), flags=re.IGNORECASE).strip()
+        
     result_list = []
     for i, row in df.iterrows():
         # 수익률 파싱
@@ -55,7 +59,7 @@ def clean_html(val):
                     if v.lower() != "nan" and v != "": sub_period = v
                     break
         
-        # 문자 발송(main.py)을 위한 포맷팅
+        # 문자 발송을 위한 포맷팅 (clean_html 적용)
         result_list.append({
             "상품명": clean_html(row.get("상품명", "-")),
             "기초자산": clean_html(row.get("기초자산", "-")),
