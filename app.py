@@ -80,10 +80,15 @@ def get_my_portfolio_risk():
             
         my_els_list = []
         for item in manual_assets:
-            # 영문/한글 키 모두 대응하여 ELS 상품 확인
+            # ELS 상품 확인
             asset_type = str(item.get("asset_type", item.get("상품종류", ""))).upper()
             if "ELS" in asset_type:
                 
+                # 상환/매도/종료된 상품은 카운팅에서 제외 (이전 팩트체크 로직 유지)
+                status = str(item.get("status", item.get("현재상태", "보유중"))).strip().replace(" ", "")
+                if status in ["상환", "상환완료", "매도", "매도완료", "만기", "만기상환", "종료", "CLOSED", "FALSE"]:
+                    continue
+                    
                 ki_raw = str(item.get("knock_in", item.get("낙인", "")))
                 ki_nums = re.findall(r"[-+]?\d*\.?\d+", ki_raw)
                 ki_val = float(ki_nums[0]) if ki_nums else 999.0
@@ -93,27 +98,12 @@ def get_my_portfolio_risk():
                 repay_val = float(repay_nums[0]) if repay_nums else 999.0
                 
                 my_assets = []
-                # my-portfolio-app의 로직과 완벽 동일하게 3개의 기초자산을 검사합니다.
+                # 3개의 기초자산이 비어있지 않은지만 깔끔하게 검사합니다. (추측성 기준가 필터 완전 제거)
                 for i in range(1, 4):
                     u = str(item.get(f"underlying_asset_{i}", item.get(f"기초자산{i}", ""))).strip()
-                    if u.lower() in ['nan', 'none', '', '<na>', '-']: 
-                        continue
-                        
-                    # 🚨 [팩트 체크 반영] my-portfolio-app의 '기준가 필터링' 완벽 이식
-                    base_raw = item.get(f"underlying_asset_{i}_base_price", item.get(f"기초자산{i}_기준가", 0))
-                    try:
-                        clean_base = re.sub(r'[^\d.]', '', str(base_raw))
-                        base_price = float(clean_base) if clean_base else 0.0
-                    except:
-                        base_price = 0.0
-                        
-                    # 기준가가 0이거나 누락된 유령 데이터는 my-portfolio-app처럼 과감히 카운트에서 제외합니다.
-                    if base_price == 0.0:
-                        continue 
-                        
-                    my_assets.append(u)
+                    if u.lower() not in ['nan', 'none', '', '<na>', '-']: 
+                        my_assets.append(u)
                 
-                # 기준가가 유효한 자산이 하나라도 있을 때만 최종 포트폴리오 리스트에 추가
                 if my_assets:
                     my_els_list.append({
                         "assets": my_assets,
