@@ -110,6 +110,10 @@ def get_my_portfolio_risk():
                         "ki": ki_val,
                         "repay": repay_val
                     })
+                    
+        # 임시 디버깅 코드: KOSPI200을 포함한다고 인식한 상품의 이름(자산명)만 리스트로 뽑아서 화면에 출력
+        kospi_list = [item.get("자산명", item.get("상품명", "이름없음")) for item in manual_assets if "KOSPI" in str(item).upper()]
+        st.write("🚨 els-alert이 인식한 KOSPI200 상품 목록 (23개):", kospi_list)
         
         return my_els_list
         
