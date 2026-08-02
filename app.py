@@ -409,25 +409,47 @@ try:
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
-
-                            # --- [임시 디버깅 코드 시작] ---
-                            st.write(f"🚨 [디버깅] 현재 상품의 KI 기준값 (ki_val) : {ki_val}")
-                            st.write("👉 [디버깅] 내 포트폴리오 상품들의 KI 값 목록 :", [m.get('ki') for m in matching_my_products])
-                            # --- [임시 디버깅 코드 끝] ---
                             
-                            lower_ki_count = sum(1 for m in matching_my_products if m['ki'] != 999.0 and m['ki'] < ki_val)
+                            # 1. 화면에 표시할 '현재 비교 대상 상품'의 절대 낙인/배리어 지수를 숫자로 변환합니다. 
+                            # (예: 문자열 "261.70" -> 실수 261.70)
+                            current_abs_ki = float(str(ki_price_str).replace(',', '')) if ki_price_str else 0.0
+                            current_abs_barrier = float(str(barrier_price_str).replace(',', '')) if barrier_price_str else 0.0
                             
-                            lower_ki_count = sum(1 for m in matching_my_products if m['ki'] != 999.0 and m['ki'] < ki_val)
-                            lower_repay_count = sum(1 for m in matching_my_products if m['repay'] != 999.0 and m['repay'] < first_barrier_val)
+                            lower_ki_count = 0
+                            lower_repay_count = 0
+                            
+                            for m in matching_my_products:
+                                m_base_price = 0.0
+                                
+                                # 2. 내 포트폴리오 원본 데이터(m)에서 현재 지수(current_asset)에 해당하는 최초기준가 찾기
+                                # (이전에 확인한 JSON 데이터의 구조를 바탕으로 기초자산1, 2, 3 중 일치하는 것을 찾습니다)
+                                for i in range(1, 4):
+                                    asset_key = f"underlying_asset_{i}"
+                                    price_key = f"base_price_{i}"
+                                    
+                                    my_asset_name = str(m.get(asset_key, '')).upper()
+                                    # 이름이 서로 포함되는지 확인 (예: 'KOSPI200' 과 'KOSPI200 Index')
+                                    if my_asset_name and (my_asset_name in current_asset.upper() or current_asset.upper() in my_asset_name):
+                                        m_base_price = float(m.get(price_key, 0.0))
+                                        break
+                                
+                                # 3. 내 상품의 절대 낙인지수 및 절대 배리어지수 계산 (최초기준가 * 퍼센트)
+                                if m_base_price > 0:
+                                    m_abs_ki = m_base_price * (m['ki'] / 100.0) if m.get('ki', 999.0) != 999.0 else 99999.0
+                                    m_abs_repay = m_base_price * (m['repay'] / 100.0) if m.get('repay', 999.0) != 999.0 else 99999.0
+                                    
+                                    # 4. 🎯 절대 지수 가격 대소 비교 (내 상품의 절대지수 < 현재 상품의 절대지수)
+                                    if m.get('ki', 999.0) != 999.0 and m_abs_ki < current_abs_ki:
+                                        lower_ki_count += 1
+                                    
+                                    if m.get('repay', 999.0) != 999.0 and m_abs_repay < current_abs_barrier:
+                                        lower_repay_count += 1
                             
                             comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 {total_match_count}개({current_price_str}), 낙인 {lower_ki_count}개({ki_price_str}), 배리어 {lower_repay_count}개({barrier_price_str})</span><br>")
                         else:
                             comparison_lines.append(f"<span style='display:inline-block; margin-left:8px;'>- {current_asset} : 총 0개({current_price_str}), 낙인 0개({ki_price_str}), 배리어 0개({barrier_price_str})</span><br>")
                             
                     pf_msg = f"<b>3. 내 포트폴리오 비교 (내가 가입한 상품 수 {total_my_els_count}개)</b><br>" + "".join(comparison_lines)
-                else:
-                    pf_msg = "<b>3. 내 포트폴리오 비교</b><br><span style='display:inline-block; margin-left:8px;'>📂 <i>포트폴리오(portfolio.json) 연동 대기중입니다.</i></span>"
-
                 st.markdown(f'''
 <div style="padding: 18px; border: 1px solid #E5E7EB; border-radius: 12px; margin-bottom: 15px; background-color: #FFFFFF; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
     <h4 style="margin-top: 0px; margin-bottom: 12px; color: #1E3A8A; font-size: 18px;">{prod_name}</h4>
