@@ -110,7 +110,11 @@ def get_my_portfolio_risk():
                         "ki": ki_val,
                         "repay": repay_val
                     })
-                            
+
+        # 임시 디버깅 코드: els-alert이 S&P500으로 인식하는 상품 이름 목록 출력
+        sp_list = [item.get("name", "이름없음") for item in manual_assets if "S&P" in str(item).upper() or "SPX" in str(item).upper() or "에스앤피" in str(item).upper()]
+        st.write("🚨 els-alert S&P500 상품 목록:", sp_list)
+        
         return my_els_list
         
     except Exception as e:
