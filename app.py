@@ -80,29 +80,46 @@ def get_my_portfolio_risk():
             
         my_els_list = []
         for item in manual_assets:
-            if isinstance(item, dict) and item.get("asset_type") == "ELS":
-                ki_raw = str(item.get("knock_in", ""))
+            # 영문/한글 키 모두 대응하여 ELS 상품 확인
+            asset_type = str(item.get("asset_type", item.get("상품종류", ""))).upper()
+            if "ELS" in asset_type:
+                
+                ki_raw = str(item.get("knock_in", item.get("낙인", "")))
                 ki_nums = re.findall(r"[-+]?\d*\.?\d+", ki_raw)
                 ki_val = float(ki_nums[0]) if ki_nums else 999.0
                 
-                repay_raw = str(item.get("repay_cond_1", ""))
+                repay_raw = str(item.get("repay_cond_1", item.get("1차조건", "")))
                 repay_nums = re.findall(r"[-+]?\d*\.?\d+", repay_raw)
                 repay_val = float(repay_nums[0]) if repay_nums else 999.0
                 
-                u1 = str(item.get("underlying_asset_1", "")).strip()
-                u2 = str(item.get("underlying_asset_2", "")).strip()
-                u3 = str(item.get("underlying_asset_3", "")).strip()
-                
                 my_assets = []
-                for u in [u1, u2, u3]:
-                    if u and u.lower() != 'nan':
-                        my_assets.append(u)
+                # my-portfolio-app의 로직과 완벽 동일하게 3개의 기초자산을 검사합니다.
+                for i in range(1, 4):
+                    u = str(item.get(f"underlying_asset_{i}", item.get(f"기초자산{i}", ""))).strip()
+                    if u.lower() in ['nan', 'none', '', '<na>', '-']: 
+                        continue
                         
-                my_els_list.append({
-                    "assets": my_assets,
-                    "ki": ki_val,
-                    "repay": repay_val
-                })
+                    # 🚨 [팩트 체크 반영] my-portfolio-app의 '기준가 필터링' 완벽 이식
+                    base_raw = item.get(f"underlying_asset_{i}_base_price", item.get(f"기초자산{i}_기준가", 0))
+                    try:
+                        clean_base = re.sub(r'[^\d.]', '', str(base_raw))
+                        base_price = float(clean_base) if clean_base else 0.0
+                    except:
+                        base_price = 0.0
+                        
+                    # 기준가가 0이거나 누락된 유령 데이터는 my-portfolio-app처럼 과감히 카운트에서 제외합니다.
+                    if base_price == 0.0:
+                        continue 
+                        
+                    my_assets.append(u)
+                
+                # 기준가가 유효한 자산이 하나라도 있을 때만 최종 포트폴리오 리스트에 추가
+                if my_assets:
+                    my_els_list.append({
+                        "assets": my_assets,
+                        "ki": ki_val,
+                        "repay": repay_val
+                    })
         
         return my_els_list
         
