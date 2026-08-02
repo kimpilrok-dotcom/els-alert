@@ -345,11 +345,12 @@ try:
                     
                     def normalize_asset(a):
                         a = a.upper().replace(" ", "")
-                        if "홍콩" in a or "HSCEI" in a or "H지수" in a: return "HSCEI"
-                        if "KOSPI" in a or "코스피" in a: return "KOSPI200"
-                        if "NIKKEI" in a or "니케이" in a or "닛케이" in a: return "NIKKEI225"
-                        if "EURO" in a or "STOXX" in a or "유로" in a: return "EUROSTOXX50"
-                        if "S&P" in a or "SPX" in a or "에스앤피" in a: return "S&P500"
+                        # my-portfolio-app의 ticker_map과 완벽히 동일한 엄격한 기준 적용
+                        if a in ["KOSPI200", "코스피200"]: return "KOSPI200"
+                        if a in ["NIKKEI225", "니케이225", "닛케이225"]: return "NIKKEI225"
+                        if a in ["EUROSTOXX50", "유로스탁스50"]: return "EUROSTOXX50"
+                        if a in ["S&P500", "SPX"]: return "S&P500"
+                        if a in ["홍콩H", "HSCEI"]: return "HSCEI"
                         return a
                     
                     comparison_lines = []
