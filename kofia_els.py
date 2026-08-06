@@ -3,6 +3,7 @@ import pandas as pd
 import re
 import yfinance as yf
 import plotly.graph_objects as go
+from kofia_els import automate_download, parse_kofia_file
 import numpy as np
 import datetime
 import json
