@@ -56,6 +56,8 @@ def get_market_data():
             pass
     return hist_dict, end_date_str, start_13y_str
 
+# 💡 최적화: 불필요한 외부 API(GitHub) 반복 호출 방지
+@st.cache_data(ttl=600)
 def get_my_portfolio_risk():
     try:
         token = st.secrets.get("github_token", None)
@@ -80,11 +82,8 @@ def get_my_portfolio_risk():
             
         my_els_list = []
         for item in manual_assets:
-            # ELS 상품 확인
             asset_type = str(item.get("asset_type", item.get("상품종류", ""))).upper()
             if "ELS" in asset_type:
-                
-                # 상환/매도/종료된 상품은 카운팅에서 제외 (이전 팩트체크 로직 유지)
                 status = str(item.get("status", item.get("현재상태", "보유중"))).strip().replace(" ", "")
                 if status in ["상환", "상환완료", "매도", "매도완료", "만기", "만기상환", "종료", "CLOSED", "FALSE"]:
                     continue
@@ -98,14 +97,12 @@ def get_my_portfolio_risk():
                 repay_val = float(repay_nums[0]) if repay_nums else 999.0
                 
                 my_assets = []
-                # 3개의 기초자산이 비어있지 않은지만 깔끔하게 검사합니다. (추측성 기준가 필터 완전 제거)
                 for i in range(1, 4):
                     u = str(item.get(f"underlying_asset_{i}", item.get(f"기초자산{i}", ""))).strip()
                     if u.lower() not in ['nan', 'none', '', '<na>', '-']: 
                         my_assets.append(u)
                 
                 if my_assets:
-                    # 🎯 팩트 반영: 나중에 절대지수를 계산할 수 있도록 기준가(base_price)와 자산명(underlying_asset)을 함께 저장합니다.
                     append_item = {
                         "name": item.get("name", "이름없음"),
                         "assets": my_assets,
@@ -114,10 +111,7 @@ def get_my_portfolio_risk():
                     }
                     
                     for i in range(1, 4):
-                        # 원본 JSON에 있는 기초자산명과 기준가를 그대로 가져와 저장
                         asset_name = item.get(f"underlying_asset_{i}", item.get(f"기초자산{i}", ""))
-                        
-                        # 기준가가 NaN(결측치)이거나 없는 경우 0.0으로 처리
                         price_val = item.get(f"base_price_{i}", 0.0)
                         if str(price_val).lower() == 'nan':
                             price_val = 0.0
@@ -132,6 +126,32 @@ def get_my_portfolio_risk():
     except Exception as e:
         return None
 
+# 💡 최적화: 실시간 가격 조회 중복 호출 방지를 위한 헬퍼 함수
+def get_live_price_cached(ticker_name, hist_dict, cache_dict):
+    if ticker_name in cache_dict:
+        return cache_dict[ticker_name]
+        
+    current_price = float(hist_dict[ticker_name]['Close'].iloc[-1]) if ticker_name in hist_dict else 0.0
+    
+    if ticker_name == "KOSPI200":
+        try:
+            res = requests.get("https://m.stock.naver.com/api/index/KPI200/basic", timeout=3)
+            if res.status_code == 200:
+                current_price = float(res.json()['closePrice'].replace(',', ''))
+        except: pass
+    elif ticker_name == "NIKKEI225":
+        try:
+            res = requests.get("https://www.google.com/finance/quote/NI225:INDEXNIKKEI?hl=en", timeout=3)
+            m = re.search(r'data-last-price="([\d\.]+)"', res.text)
+            if m: current_price = float(m.group(1))
+            else:
+                m2 = re.search(r'class="YMlKec fxKbKc"[^>]*>([\d,\.]+)', res.text)
+                if m2: current_price = float(m2.group(1).replace(',', ''))
+        except: pass
+        
+    cache_dict[ticker_name] = current_price
+    return current_price
+
 my_els_portfolio = get_my_portfolio_risk()
 
 with st.spinner("최신 지수와 ELS 데이터를 연동 중입니다... (최초 1회 소요)"):
@@ -145,7 +165,6 @@ try:
 
     if "유형" in raw_df.columns:
         type_options = raw_df["유형"].unique().tolist()
-        # 💡 default 값을 리스트 형태로 ["지수형"]만 지정합니다.
         selected_types = st.sidebar.multiselect("✅ 기초자산 유형", type_options, default=["지수형"])
         if selected_types:
             filtered_df = filtered_df[filtered_df["유형"].isin(selected_types)]
@@ -216,8 +235,7 @@ try:
     tab1, tab2, tab3, tab4 = st.tabs(["📊 엑셀(표)", "📝 리스트(카드)", "📈 낙인 시뮬레이터", "🧪 과거 확률 백테스트"])
     
     with tab1:
-        # ✅ 표를 그릴 때만 임시로 전체를 문자열(str)로 치환하여 에러 방지
-        st.dataframe(filtered_df.astype(str), use_container_width=True)
+        st.dataframe(filtered_df, use_container_width=True)
         
     with tab2:
         if len(filtered_df) == 0:
@@ -231,22 +249,29 @@ try:
                 nums = re.findall(r"[-+]?\d*\.?\d+", s)
                 return float(nums[0]) if nums else 999.0
             
+            # 💡 최적화: 매번 찾지 않고 컬럼 이름들을 미리 식별하여 연산 속도 향상
+            yield_cols = [c for c in tab2_df.columns if "수익" in str(c)]
+            start_cols = [c for c in tab2_df.columns if "청약" in str(c) and "시작" in str(c)]
+            end_cols = [c for c in tab2_df.columns if "청약" in str(c) and "종료" in str(c)]
+            period_cols = [c for c in tab2_df.columns if "청약" in str(c) and "기간" in str(c)]
+
             def extract_yield(row):
                 p_name = str(row.get("상품명", "-"))
-                for c in row.index:
-                    if "수익" in str(c):
-                        v = str(row[c])
-                        if v.lower() != "nan" and v != "":
-                            nums = re.findall(r"[-+]?\d*\.?\d+", v.replace(",", ""))
-                            if nums: return float(nums[0])
+                for c in yield_cols:
+                    v = str(row[c])
+                    if v.lower() != "nan" and v != "":
+                        nums = re.findall(r"[-+]?\d*\.?\d+", v.replace(",", ""))
+                        if nums: return float(nums[0])
                 m = re.search(r"(?:연\s*|)([\d\.]+)%", p_name)
                 if m: return float(m.group(1))
                 return 0.0
             
             tab2_df["_sort_ki"] = tab2_df["낙인(KI)"].apply(extract_ki)
             tab2_df["_sort_yield"] = tab2_df.apply(extract_yield, axis=1)
-            
             tab2_df = tab2_df.sort_values(by=["_sort_ki", "_sort_yield"], ascending=[True, False])
+
+            # 실시간 가격 중복 요청 방지용 캐시 딕셔너리
+            live_price_cache = {}
 
             for idx, row in tab2_df.iterrows():
                 def get_val(col_name):
@@ -269,33 +294,29 @@ try:
                         first_barrier_val = float(parts[0])
 
                 yield_val = "-"
-                for c in row.index:
-                    if "수익" in str(c):
-                        v = str(row[c])
-                        if v.lower() != "nan" and v != "":
-                            yield_val = f"{v}%" if v.replace('.','',1).isdigit() else v
+                for c in yield_cols:
+                    v = str(row[c])
+                    if v.lower() != "nan" and v != "":
+                        yield_val = f"{v}%" if v.replace('.','',1).isdigit() else v
                         break
                 if yield_val == "-":
                     m = re.search(r"(?:연\s*|)([\d\.]+)%", prod_name)
                     if m: yield_val = f"연 {m.group(1)}%"
                         
                 start_date, end_date = "", ""
-                for c in row.index:
-                    if "청약" in str(c) and "시작" in str(c):
-                        v = str(row[c]).split(' ')[0]
-                        if v.lower() != "nan": start_date = v
-                    elif "청약" in str(c) and "종료" in str(c):
-                        v = str(row[c]).split(' ')[0]
-                        if v.lower() != "nan": end_date = v
+                for c in start_cols:
+                    v = str(row[c]).split(' ')[0]
+                    if v.lower() != "nan": start_date = v; break
+                for c in end_cols:
+                    v = str(row[c]).split(' ')[0]
+                    if v.lower() != "nan": end_date = v; break
                         
                 if start_date and end_date: sub_period = f"{start_date} ~ {end_date}"
                 else:
                     sub_period = "-"
-                    for c in row.index:
-                        if "청약" in str(c) and "기간" in str(c):
-                            v = str(row[c])
-                            if v.lower() != "nan" and v != "": sub_period = v
-                            break
+                    for c in period_cols:
+                        v = str(row[c])
+                        if v.lower() != "nan" and v != "": sub_period = v; break
                 
                 overall_worst_prob = 0.0
                 asset_stats = []
@@ -310,28 +331,25 @@ try:
                             window_size = 252 * 3
                             total_sim_days = len(prices)
                             
-                            knock_in_count = 0.0
-                            weighted_total = 0.0
-                            last_touch_dt = None
+                            # 💡 최적화: 극도로 무거운 Python for 루프를 Pandas Vectorized 연산으로 100% 교체 (처리시간 극적 단축)
+                            prices_s = pd.Series(prices)
+                            ki_prices = prices_s * (ki_val / 100.0)
+                            future_min = prices_s[::-1].rolling(window=window_size, min_periods=1).min()[::-1]
                             
-                            for i in range(total_sim_days):
-                                issue_price = prices[i]
-                                ki_price = issue_price * (ki_val / 100.0)
-                                remaining_days = total_sim_days - i
-                                actual_window = min(window_size, remaining_days)
-                                window_min_price = np.min(prices[i : i + actual_window])
-                                
-                                if window_min_price <= ki_price:
-                                    knock_in_count += 1.0
-                                    weighted_total += 1.0
-                                    last_touch_dt = dates[i].strftime('%Y-%m-%d')
-                                else:
-                                    if actual_window == window_size:
-                                        weighted_total += 1.0
-                                    else:
-                                        weighted_total += (actual_window / window_size)
-                                        
+                            is_knock_in = future_min <= ki_prices
+                            
+                            remaining_days = total_sim_days - np.arange(total_sim_days)
+                            actual_windows = np.minimum(window_size, remaining_days)
+                            weights = actual_windows / window_size
+                            
+                            wt = np.where(is_knock_in, 1.0, weights)
+                            weighted_total = np.sum(wt)
+                            knock_in_count = np.sum(is_knock_in)
+                            
                             prob = (knock_in_count / weighted_total) * 100 if weighted_total > 0 else 0
+                            
+                            hit_indices = np.where(is_knock_in)[0]
+                            last_touch_dt = dates[hit_indices[-1]].strftime('%Y-%m-%d') if len(hit_indices) > 0 else None
                             
                             asset_stats.append({
                                 'ticker': matched_ticker,
@@ -363,7 +381,6 @@ try:
                     
                     def normalize_asset(a):
                         a = a.upper().replace(" ", "")
-                        # 팩트: 금투협 데이터("KOSPI200INDEX")와 내 포트폴리오("KOSPI200")를 모두 커버하는 포함(in) 방식 적용
                         if "홍콩" in a or "HSCEI" in a or "H지수" in a: return "HSCEI"
                         if "KOSPI" in a or "코스피" in a: return "KOSPI200"
                         if "NIKKEI" in a or "니케이" in a or "닛케이" in a: return "NIKKEI225"
@@ -381,38 +398,15 @@ try:
                             if norm_current in my_norm_assets:
                                 matching_my_products.append(my_els)
                         
-                        # --- [추가/수정된 부분] 현재가 및 조건별 가격 계산 ---
                         current_price_str = "-"
                         ki_price_str = "-"
                         barrier_price_str = "-"
                         
-                        # 💡 [핵심 수정] 띄어쓰기("Euro Stoxx" 등) 때문에 지수를 인식하지 못하는 문제를 해결하기 위해 공백이 제거된 norm_current를 기준으로 매칭합니다.
                         matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in norm_current.upper()), None)
                         
                         if matched_ticker and matched_ticker in hist_dict:
-                            current_price = float(hist_dict[matched_ticker]['Close'].iloc[-1])
-                            
-                            if matched_ticker == "KOSPI200":
-                                try:
-                                    api_url = "https://m.stock.naver.com/api/index/KPI200/basic"
-                                    res = requests.get(api_url, timeout=5)
-                                    if res.status_code == 200:
-                                        current_price = float(res.json()['closePrice'].replace(',', ''))
-                                except:
-                                    pass
-                                    
-                            elif matched_ticker == "NIKKEI225":
-                                try:
-                                    res = requests.get("https://www.google.com/finance/quote/NI225:INDEXNIKKEI?hl=en", timeout=5)
-                                    m = re.search(r'data-last-price="([\d\.]+)"', res.text)
-                                    if m:
-                                        current_price = float(m.group(1))
-                                    else:
-                                        m2 = re.search(r'class="YMlKec fxKbKc"[^>]*>([\d,\.]+)', res.text)
-                                        if m2:
-                                            current_price = float(m2.group(1).replace(',', ''))
-                                except:
-                                    pass
+                            # 💡 캐시 함수를 통해 API 중복 호출 완벽 제거
+                            current_price = get_live_price_cached(matched_ticker, hist_dict, live_price_cache)
                             
                             current_price_str = f"{current_price:,.2f}"
                             
@@ -423,13 +417,12 @@ try:
                                 
                             if first_barrier_val != 999.0:
                                 barrier_price_str = f"{current_price * (first_barrier_val / 100.0):,.2f}"
-                        # -----------------------------------------------
                                 
                         if matching_my_products:
                             total_match_count = len(matching_my_products)
                             
-                            current_abs_ki = float(str(ki_price_str).replace(',', '')) if ki_price_str else 0.0
-                            current_abs_barrier = float(str(barrier_price_str).replace(',', '')) if barrier_price_str else 0.0
+                            current_abs_ki = float(str(ki_price_str).replace(',', '')) if ki_price_str != "노낙인" and ki_price_str != "-" else 0.0
+                            current_abs_barrier = float(str(barrier_price_str).replace(',', '')) if barrier_price_str != "-" else 0.0
                             
                             lower_ki_count = 0
                             lower_repay_count = 0
@@ -593,33 +586,26 @@ try:
                     if total_sim_days <= 0:
                         st.error("데이터가 충분하지 않아 백테스트를 수행할 수 없습니다.")
                     else:
-                        knock_in_count = 0.0
-                        weighted_total = 0.0
-                        hit_dates = []
-                        hit_prices = []
+                        # 💡 최적화: 백테스트 시뮬레이션 역시 Vectorized 연산으로 100% 교체 (버튼 누르자마자 반응)
+                        prices_s = pd.Series(prices)
+                        ki_prices = prices_s * (bt_ki_level / 100.0)
                         
-                        for i in range(total_sim_days):
-                            issue_price = prices[i]
-                            ki_price = issue_price * (bt_ki_level / 100.0)
-                            
-                            remaining_days = total_sim_days - i
-                            actual_window = min(window_size, remaining_days)
-                            
-                            window_min_price = np.min(prices[i : i + actual_window])
-                            
-                            if window_min_price <= ki_price:
-                                knock_in_count += 1.0
-                                weighted_total += 1.0
-                                hit_dates.append(dates[i])
-                                hit_prices.append(issue_price)
-                            else:
-                                if actual_window == window_size:
-                                    weighted_total += 1.0
-                                else:
-                                    weight = actual_window / window_size
-                                    weighted_total += weight
-                                    
+                        future_min = prices_s[::-1].rolling(window=window_size, min_periods=1).min()[::-1]
+                        is_knock_in = future_min <= ki_prices
+                        
+                        remaining_days = total_sim_days - np.arange(total_sim_days)
+                        actual_windows = np.minimum(window_size, remaining_days)
+                        weights = actual_windows / window_size
+                        
+                        wt = np.where(is_knock_in, 1.0, weights)
+                        weighted_total = np.sum(wt)
+                        knock_in_count = np.sum(is_knock_in)
+                        
                         probability = (knock_in_count / weighted_total) * 100 if weighted_total > 0 else 0
+                        
+                        hit_indices = np.where(is_knock_in)[0]
+                        hit_dates = dates[hit_indices]
+                        hit_prices = prices[hit_indices]
                         
                         st.markdown("---")
                         res_col1, res_col2, res_col3 = st.columns(3)
@@ -632,7 +618,7 @@ try:
                         
                         fig_bt.add_trace(go.Scatter(x=dates, y=prices, mode='lines', name='지수 종가', line=dict(color='#9CA3AF', width=1)))
                         
-                        if hit_dates:
+                        if len(hit_dates) > 0:
                             fig_bt.add_trace(go.Scatter(x=hit_dates, y=hit_prices, mode='markers', name='낙인 발생 가입일', marker=dict(color='#DC2626', size=4)))
                         
                         fig_bt.update_layout(xaxis_title="연도", yaxis_title="지수 포인트", hovermode="x unified", margin=dict(l=20, r=20, t=30, b=20), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
