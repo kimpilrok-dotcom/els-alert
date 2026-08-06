@@ -49,7 +49,7 @@ def format_product(row, number):
     cycle = row.get("조기상환주기", "-")
     barrier = row.get("조기상환배리어", "-")
 
-    # 💡 보기 좋게 문자로 조립 + 수익률 강조 괄호 【 】 추가!
+    # 💡 [요청 반영] 보기 좋게 문자로 조립 + 수익률 강조 괄호 【 】 추가!
     return (
         f"{number}. {issuer} {name}\n"
         f"기초: {underlying}\n"
@@ -69,14 +69,12 @@ def send_sms(text):
         return
 
     service = SolapiMessageService(api_key=api_key, api_secret=api_secret)
-    # 빈 공백 번호 등 방어 코드 적용
-    to_numbers = [num.strip() for num in to_numbers_str.split(",") if num.strip()]
-
-    # 💡 최적화: 문자열이 최대 길이를 넘어가면 안전하게 자르고 '...' 추가
-    if len(text) > MAX_MESSAGE_LENGTH:
-        text = text[:MAX_MESSAGE_LENGTH - 3] + "..."
+    to_numbers = [num.strip() for num in to_numbers_str.split(",")]
 
     for to_num in to_numbers:
+        if not to_num: 
+            continue
+            
         try:
             message = RequestMessage(from_=from_num, to=to_num, text=text)
             service.send(message)
@@ -85,29 +83,32 @@ def send_sms(text):
             logging.error(f"❌ {to_num} 번호 발송 실패: {e}")
 
 def run():
+    import re
+    
     logging.info("ELS 리포트 발송 준비 시작")
     
+    # 1. kofia_sms.py에서 지수형 필터링 & 수익률 정렬이 완료된 데이터 가져오기
     products = get_filtered_els()
     if products.empty:
         logging.info("조건에 맞는 상품이 없습니다.")
         return
 
-    # 💡 최적화: SettingWithCopyWarning 방지를 위해 명시적으로 복사본 생성
-    products = products.copy()
     products["_product_id"] = products["상품명"].astype(str).str.strip()
     sent_ids = load_sent_ids()
 
-    # 💡 최적화: 정규식을 통한 apply 연산을 Pandas 벡터화(Vectorized) 연산으로 변경하여 속도 극대화
-    ki_series = products["낙인(KI)"].astype(str).str.strip()
-    mask_invalid = ki_series.str.contains("노낙인|없음", na=False) | ki_series.isin(["-", ""])
-    
-    # 모든 행의 숫자를 한 번에 추출
-    extracted_ki = ki_series.str.extract(r'([-+]?\d*\.?\d+)')[0].astype(float)
-    extracted_ki = extracted_ki.fillna(0.0)
-    extracted_ki[mask_invalid] = 0.0 # 노낙인 등의 텍스트가 포함된 경우 0으로 처리
-    
-    products["_sort_ki"] = extracted_ki
+    def get_numeric_ki(row):
+        try:
+            val_str = str(row.get("낙인(KI)", "0")).strip()
+            if "노낙인" in val_str or "없음" in val_str or val_str == "-" or val_str == "":
+                return 0.0
+            numbers = re.findall(r"[-+]?\d*\.?\d+", val_str)
+            return float(numbers[0]) if numbers else 0.0
+        except:
+            return 0.0
+
+    # kofia_sms.py에서 수익률을 이미 숫자로 주므로 복잡한 추출 코드가 필요 없습니다.
     products["_sort_yield"] = products["수익률"]
+    products["_sort_ki"] = products.apply(get_numeric_ki, axis=1)
 
     # 노낙인 제외 (정상적인 데이터만 추려냄)
     valid_products = products[products["_sort_ki"] > 0]
@@ -116,7 +117,7 @@ def run():
         logging.info("유효한 낙인(KI) 데이터가 없습니다.")
         return
 
-    # 최저 낙인 / 차최저 낙인 찾기
+    # 3. 최저 낙인 / 차최저 낙인 찾기
     ki_levels = sorted(valid_products["_sort_ki"].unique())
     lowest_ki = ki_levels[0]
     second_lowest_ki = ki_levels[1] if len(ki_levels) > 1 else None
@@ -128,10 +129,12 @@ def run():
     else:
         group2 = pd.DataFrame()
 
+    # 4. 문자 메시지 조립하기
     message_lines = ["[오늘의 알짜 ELS 리포트]\n"]
     newly_sent_product_ids = []
     
     def append_to_message(group, ki_val):
+        # 💡 [요청 반영] 문자가 크고 굵어 보이도록 테두리 적용 및 한 줄 띄우기
         message_lines.append(f"  ■ 낙인 {ki_val} (상위수익률 TOP 5)")
         message_lines.append("") # 띄어쓰기
         
@@ -141,25 +144,35 @@ def run():
             
             formatted_product = format_product(row, idx)
             
-            # 💡 최적화: 청약기간 포맷팅 로직 간결화
-            period_str = str(row.get("청약기간", "-")).strip()
+            # 청약기간 포맷팅 (YYYYMMDD~YYYYMMDD 형태를 00.00 ~ 00.00으로 이쁘게 변경)
+            period_str = str(row.get("청약기간", "-"))
             if "~" in period_str:
-                s_date, e_date = [d.strip() for d in period_str.split("~", 1)]
-                s_date = f"{s_date[4:6]}.{s_date[6:8]}" if len(s_date) >= 8 else s_date
-                e_date = f"{e_date[4:6]}.{e_date[6:8]}" if len(e_date) >= 8 else e_date
-                period_str = f"청약: {s_date} ~ {e_date}"
+                s_date, e_date = period_str.split("~")
+                def format_d(d):
+                    d = d.strip()
+                    return f"{d[4:6]}.{d[6:8]}" if len(d) >= 8 else d
+                period_str = f"청약: {format_d(s_date)} ~ {format_d(e_date)}"
             else:
                 period_str = f"청약: {period_str}"
             
-            # 💡 최적화: USD(달러) 상품 조건 검사 간결화
-            search_text = f"{row.get('상품명', '')}{row.get('비고', '')}{row.get('상품유형', '')}".upper()
-            is_usd = "USD" in search_text or "달러" in search_text
+            formatted_product = f"{formatted_product}\n{period_str}"
+            
+            # USD(달러) 상품인지 확인하기
+            is_usd = False
+            search_text = str(row.get("상품명", "")) + str(row.get("비고", "")) + str(row.get("상품유형", ""))
+            if "USD" in search_text.upper() or "달러" in search_text:
+                is_usd = True
+                
             usd_tag = "💵[USD] " if is_usd else ""
             
             # 신규 / 기존 태그 부착
-            status_tag = "✨[신규]" if pid not in sent_ids else "  [기존]"
-            message_lines.append(f"{status_tag} {usd_tag}{formatted_product}\n{period_str}\n")
-    
+            if pid not in sent_ids:
+                message_lines.append(f"✨[신규] {usd_tag}{formatted_product}\n")
+            else:
+                message_lines.append(f"  [기존] {usd_tag}{formatted_product}\n")
+        
+        message_lines.append("") # 그룹 간 띄어쓰기
+
     if not group1.empty:
         append_to_message(group1, lowest_ki)
     if not group2.empty:
@@ -167,12 +180,13 @@ def run():
 
     final_text = "\n".join(message_lines)
     
-    # 발송
-    send_sms(final_text)
+    # 5. 발송 및 장부 업데이트
+    send_sms(final_text[:MAX_MESSAGE_LENGTH])
 
-    # 💡 치명적 버그 수정: 상대경로('sent_ids.json') 대신 절대경로(STATE_FILE) 사용
     sent_ids.update(newly_sent_product_ids)
-    STATE_FILE.write_text(json.dumps(list(sent_ids), ensure_ascii=False, indent=2), encoding='utf-8')
+    
+    with open('sent_ids.json', 'w', encoding='utf-8') as f:
+        json.dump(list(sent_ids), f, ensure_ascii=False, indent=2)
         
     logging.info(f"🎉 리포트 발송 완료! (보고된 상품 수: {len(newly_sent_product_ids)}건, 누적 장부: {len(sent_ids)}건)")
 
