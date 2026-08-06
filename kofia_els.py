@@ -56,7 +56,6 @@ def get_market_data():
             pass
     return hist_dict, end_date_str, start_13y_str
 
-# 💡 최적화: 불필요한 외부 API(GitHub) 반복 호출 방지
 @st.cache_data(ttl=600)
 def get_my_portfolio_risk():
     try:
@@ -126,7 +125,6 @@ def get_my_portfolio_risk():
     except Exception as e:
         return None
 
-# 💡 최적화: 실시간 가격 조회 중복 호출 방지를 위한 헬퍼 함수
 def get_live_price_cached(ticker_name, hist_dict, cache_dict):
     if ticker_name in cache_dict:
         return cache_dict[ticker_name]
@@ -249,7 +247,6 @@ try:
                 nums = re.findall(r"[-+]?\d*\.?\d+", s)
                 return float(nums[0]) if nums else 999.0
             
-            # 💡 최적화: 매번 찾지 않고 컬럼 이름들을 미리 식별하여 연산 속도 향상
             yield_cols = [c for c in tab2_df.columns if "수익" in str(c)]
             start_cols = [c for c in tab2_df.columns if "청약" in str(c) and "시작" in str(c)]
             end_cols = [c for c in tab2_df.columns if "청약" in str(c) and "종료" in str(c)]
@@ -270,9 +267,38 @@ try:
             tab2_df["_sort_yield"] = tab2_df.apply(extract_yield, axis=1)
             tab2_df = tab2_df.sort_values(by=["_sort_ki", "_sort_yield"], ascending=[True, False])
 
-            # 실시간 가격 중복 요청 방지용 캐시 딕셔너리
+            # 💡 [초고속 렌더링을 위한 사전 계산 Block]
+            # 1. 13년치 시뮬레이션 데이터를 단 6개 기초자산에 대해서만 선제적으로 1번만 계산합니다.
+            precomputed_sim_data = {}
+            window_size = 252 * 3
+            
+            for asset_name, hist in hist_dict.items():
+                prices = hist['Close'].values
+                dates = hist.index
+                total_sim_days = len(prices)
+                
+                if total_sim_days > 0:
+                    prices_s = pd.Series(prices)
+                    future_min = prices_s[::-1].rolling(window=window_size, min_periods=1).min()[::-1]
+                    
+                    remaining_days = total_sim_days - np.arange(total_sim_days)
+                    actual_windows = np.minimum(window_size, remaining_days)
+                    weights = actual_windows / window_size
+                    
+                    precomputed_sim_data[asset_name] = {
+                        'prices_s': prices_s,
+                        'future_min': future_min,
+                        'weights': weights,
+                        'dates': dates,
+                        'total_sim_days': total_sim_days
+                    }
+            
+            # 2. 반복문에 들어가기 전, 실시간 가격 API 호출을 미리 일괄 완료하여 캐싱합니다.
             live_price_cache = {}
+            for asset_name in TICKER_MAP.keys():
+                get_live_price_cached(asset_name, hist_dict, live_price_cache)
 
+            # --- 반복문 시작 ---
             for idx, row in tab2_df.iterrows():
                 def get_val(col_name):
                     v = str(row.get(col_name, "-"))
@@ -325,31 +351,22 @@ try:
                     asset_list = [p.strip() for p in str(assets).split(',')]
                     for a in asset_list:
                         matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in a.upper()), None)
-                        if matched_ticker and matched_ticker in hist_dict:
-                            prices = hist_dict[matched_ticker]['Close'].values
-                            dates = hist_dict[matched_ticker].index
-                            window_size = 252 * 3
-                            total_sim_days = len(prices)
+                        
+                        # 💡 최적화: 미리 계산해둔 딕셔너리에서 값만 쏙 빼서 0.001초 만에 비교합니다.
+                        if matched_ticker and matched_ticker in precomputed_sim_data:
+                            sim_data = precomputed_sim_data[matched_ticker]
                             
-                            # 💡 최적화: 극도로 무거운 Python for 루프를 Pandas Vectorized 연산으로 100% 교체 (처리시간 극적 단축)
-                            prices_s = pd.Series(prices)
-                            ki_prices = prices_s * (ki_val / 100.0)
-                            future_min = prices_s[::-1].rolling(window=window_size, min_periods=1).min()[::-1]
+                            ki_prices = sim_data['prices_s'] * (ki_val / 100.0)
+                            is_knock_in = sim_data['future_min'] <= ki_prices
                             
-                            is_knock_in = future_min <= ki_prices
-                            
-                            remaining_days = total_sim_days - np.arange(total_sim_days)
-                            actual_windows = np.minimum(window_size, remaining_days)
-                            weights = actual_windows / window_size
-                            
-                            wt = np.where(is_knock_in, 1.0, weights)
+                            wt = np.where(is_knock_in, 1.0, sim_data['weights'])
                             weighted_total = np.sum(wt)
                             knock_in_count = np.sum(is_knock_in)
                             
                             prob = (knock_in_count / weighted_total) * 100 if weighted_total > 0 else 0
                             
                             hit_indices = np.where(is_knock_in)[0]
-                            last_touch_dt = dates[hit_indices[-1]].strftime('%Y-%m-%d') if len(hit_indices) > 0 else None
+                            last_touch_dt = sim_data['dates'][hit_indices[-1]].strftime('%Y-%m-%d') if len(hit_indices) > 0 else None
                             
                             asset_stats.append({
                                 'ticker': matched_ticker,
@@ -405,8 +422,8 @@ try:
                         matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in norm_current.upper()), None)
                         
                         if matched_ticker and matched_ticker in hist_dict:
-                            # 💡 캐시 함수를 통해 API 중복 호출 완벽 제거
-                            current_price = get_live_price_cached(matched_ticker, hist_dict, live_price_cache)
+                            # 💡 캐시에서 즉시 불러오므로 병목 통신 0회
+                            current_price = live_price_cache.get(matched_ticker, 0.0)
                             
                             current_price_str = f"{current_price:,.2f}"
                             
@@ -586,7 +603,6 @@ try:
                     if total_sim_days <= 0:
                         st.error("데이터가 충분하지 않아 백테스트를 수행할 수 없습니다.")
                     else:
-                        # 💡 최적화: 백테스트 시뮬레이션 역시 Vectorized 연산으로 100% 교체 (버튼 누르자마자 반응)
                         prices_s = pd.Series(prices)
                         ki_prices = prices_s * (bt_ki_level / 100.0)
                         
