@@ -216,7 +216,8 @@ try:
     tab1, tab2, tab3, tab4 = st.tabs(["📊 엑셀(표)", "📝 리스트(카드)", "📈 낙인 시뮬레이터", "🧪 과거 확률 백테스트"])
     
     with tab1:
-        st.dataframe(filtered_df, use_container_width=True)
+        # ✅ 표를 그릴 때만 임시로 전체를 문자열(str)로 치환하여 에러 방지
+        st.dataframe(filtered_df.astype(str), use_container_width=True)
         
     with tab2:
         if len(filtered_df) == 0:
