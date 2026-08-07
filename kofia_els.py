@@ -1,6 +1,7 @@
 import os, glob, time, platform
 import re
 import pandas as pd
+import numpy as np  # 💡 벡터 연산을 위해 추가되었습니다.
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -78,13 +79,12 @@ def parse_kofia_file(file_path):
     raw_df = pd.read_excel(file_path, engine="xlrd")
     raw_df.columns = raw_df.columns.astype(str)
     
+    # 1. 기초자산 컬럼 인덱스 찾기 (기존 로직 유지)
     asset_col_idx = None
     prod_col_idx = None
     for j in range(len(raw_df.columns)):
-        if "기초자산" in str(raw_df.columns[j]):
-            asset_col_idx = j
-        if "상품명" in str(raw_df.columns[j]):
-            prod_col_idx = j
+        if "기초자산" in str(raw_df.columns[j]): asset_col_idx = j
+        if "상품명" in str(raw_df.columns[j]): prod_col_idx = j
 
     if asset_col_idx is None:
         for i in range(min(15, len(raw_df))):
@@ -92,101 +92,78 @@ def parse_kofia_file(file_path):
                 if "기초자산" in str(raw_df.iloc[i, j]):
                     asset_col_idx = j
                     break
-            if asset_col_idx is not None:
-                break
+            if asset_col_idx is not None: break
 
-    ki_list = []
-    type_list = []
-    barrier_list = []  
-    cycle_list = []    
-    maturity_list = [] 
-    currency_list = []
+    # 💡 최적화: 행 전체 텍스트를 한 번에 합치기 (Vectorized)
+    row_text_series = raw_df.astype(str).apply(lambda x: ' '.join(x), axis=1)
+
+    # 2. 통화(Currency) 추출
+    currency_series = np.where(row_text_series.str.contains(r"USD|달러", case=False, regex=True), "USD", "KRW")
+
+    # 3. 낙인(KI) 추출 (기존 if/elif 체인을 Series 우선순위 결합으로 변경)
+    m1_ext = row_text_series.str.extract(r"(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})", flags=re.IGNORECASE)[0]
+    m2_ext = row_text_series.str.extract(r"(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)", flags=re.IGNORECASE)[0]
+    m3_ext = row_text_series.str.extract(r"-\s*\d{2,3}\s*/\s*(\d{2,3})")[0]
+    m4_ext = row_text_series.str.extract(r"(\d{2,3})%-\(")[0]
+    m5_ext = row_text_series.str.extract(r"월지급\s*(?:배리어|베리어)?\s*(\d{2,3})")[0]
+    no_ki_mask = row_text_series.str.contains(r"(?:No\s*KI|노낙인|노녹인|No\s*Knock[\s\-]*in|KI\s*없음|낙인\s*없음|녹인\s*없음|K/I\s*없음)", case=False, regex=True)
     
-    # 💡 지수 키워드에서 단순 '나스닥', 'NASDAQ'을 빼고 정확한 지수명(100)으로 교체
+    # combine_first를 통해 m1 -> m2 -> m3 순으로 먼저 매칭된 값을 채움
+    ki_series = m1_ext.combine_first(m2_ext).combine_first(m3_ext).combine_first(m4_ext).combine_first(m5_ext)
+    ki_series = np.where(ki_series.notna(), ki_series, np.where(no_ki_mask, "노낙인", "-"))
+
+    # 4. 배리어(Barrier) 추출
+    clean_text_series = row_text_series.str.replace(r"\([A-Za-z0-9]+\)", "", regex=True)
+    barrier_ext = clean_text_series.str.extract(r"(\d{2,3}(?:[-\/,]\s*\d{2,3}){2,})")[0]
+    barrier_series = barrier_ext.str.replace(r"[/,]", "-", regex=True).str.replace(" ", "", regex=False).fillna("-")
+
+    # 5. 만기(Maturity) 추출
+    maturity_ext = row_text_series.str.extract(r"(\d+(?:\.\d+)?)\s*(?:년|y)", flags=re.IGNORECASE)[0]
+    maturity_series = np.where(maturity_ext.notna(), maturity_ext + "년", "-")
+
+    # 6. 주기(Cycle) 추출
+    cycle_ext = row_text_series.str.extract(r"(?:^|[^0-9\.])(\d{1,3})\s*(?:개월|m)", flags=re.IGNORECASE)[0]
+    cycle_series = np.where(cycle_ext.notna(), cycle_ext + "개월", "-")
+
+    # 7. 기초자산 유형(Type) 분류
     index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "DOW", "NDX", "항셍", "NASDAQ100", "나스닥100", "NASDAQ 100", "나스닥 100"]
     
-    for i, row in raw_df.iterrows():
-        row_text = " ".join(str(x) for x in row.values)
+    def classify_asset(asset_val):
+        if not isinstance(asset_val, str) or "기초자산" in asset_val or asset_val.strip() in ("nan", ""):
+            return "-"
         
-        if re.search(r"USD|달러", str(row_text), re.IGNORECASE):
-            currency_list.append("USD")
-        else:
-            currency_list.append("KRW")
-
-        if row_text is None:
-            m1 = None
-        else:
-            m1 = re.search(r"(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})", str(row_text), re.IGNORECASE)
+        tag_br = chr(60) + "BR/" + chr(62)
+        clean_asset = asset_val.upper().replace(tag_br, ",").replace("\n", ",").replace("/", ",")
+        assets = [a.strip() for a in clean_asset.split(",") if a.strip()]
         
-        m2 = re.search(r"(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)", str(row_text), re.IGNORECASE)
-        m3 = re.search(r"-\s*\d{2,3}\s*/\s*(\d{2,3})", str(row_text))
-        m4 = re.search(r"(\d{2,3})%-\(", str(row_text))
-        m5 = re.search(r"월지급\s*(?:배리어|베리어)?\s*(\d{2,3})", str(row_text))
-        no_ki_match = re.search(r"(?:No\s*KI|노낙인|노녹인|No\s*Knock[\s\-]*in|KI\s*없음|낙인\s*없음|녹인\s*없음|K/I\s*없음)", str(row_text), re.IGNORECASE)
+        has_index = False
+        has_stock = False
         
-        if m1: ki_list.append(m1.group(1))
-        elif m2: ki_list.append(m2.group(1))
-        elif m3: ki_list.append(m3.group(1))
-        elif m4: ki_list.append(m4.group(1))
-        elif m5: ki_list.append(m5.group(1))
-        elif no_ki_match: ki_list.append("노낙인")
-        else: ki_list.append("-")
-        
-        if asset_col_idx is not None:
-            asset_val = str(row.iloc[asset_col_idx])
-            if "기초자산" in asset_val or asset_val.strip() == "nan" or asset_val.strip() == "":
-                type_list.append("-")
+        for asset in assets:
+            if re.search(r'\((NASDAQ|NYSE|나스닥|뉴욕|NY|AMEX)[^)]*\)', asset):
+                has_stock = True
+            elif any(k in asset for k in index_keywords):
+                has_index = True
             else:
-                tag_br = chr(60) + "BR/" + chr(62)
-                clean_asset = asset_val.upper().replace(tag_br, ",").replace("\n", ",").replace("/", ",")
+                has_stock = True
                 
-                assets = [a.strip() for a in clean_asset.split(",") if a.strip()]
-                has_index = False
-                has_stock = False
-                
-                for asset in assets:
-                    a_upper = asset.upper()
-                    # 💡 괄호 안에 나스닥이나 뉴욕 증시가 적혀있으면 100% 종목형으로 분류
-                    if re.search(r'\((NASDAQ|NYSE|나스닥|뉴욕|NY|AMEX)[^)]*\)', a_upper):
-                        has_stock = True
-                    elif any(k in a_upper for k in index_keywords):
-                        has_index = True
-                    else:
-                        has_stock = True
-                        
-                if has_index and has_stock: type_list.append("혼합형")
-                elif has_index: type_list.append("지수형")
-                elif has_stock: type_list.append("종목형")
-                else: type_list.append("-")
-        else:
-            type_list.append("-")
-            
-        clean_text = re.sub(r"\([A-Za-z0-9]+\)", "", str(row_text))
-        m_barrier = re.search(r"(\d{2,3}(?:[-\/,]\s*\d{2,3}){2,})", clean_text)
-        if m_barrier: 
-            cleaned_barrier = m_barrier.group(1).replace("/", "-").replace(",", "-").replace(" ", "")
-            barrier_list.append(cleaned_barrier)
-        else: 
-            barrier_list.append("-")
-            
-        m_maturity = re.search(r"(\d+(?:\.\d+)?)\s*(년|y)", str(row_text), re.IGNORECASE)
-        if m_maturity: 
-            maturity_list.append(m_maturity.group(1) + "년")
-        else: 
-            maturity_list.append("-")
+        if has_index and has_stock: return "혼합형"
+        elif has_index: return "지수형"
+        elif has_stock: return "종목형"
+        return "-"
 
-        # 💡 조기상환주기 에러 픽스: 무조건 '1자리~3자리 숫자'만 가져오도록 정규식 수정
-        m_cycle = re.search(r"(?:^|[^0-9\.])(\d{1,3})\s*(개월|m)", str(row_text), re.IGNORECASE)
-        if m_cycle: 
-            cycle_list.append(m_cycle.group(1) + "개월")
-        else: 
-            cycle_list.append("-")
-            
-    raw_df.insert(0, "통화", currency_list)
-    raw_df.insert(0, "조기상환주기", cycle_list)
-    raw_df.insert(0, "만기", maturity_list)
-    raw_df.insert(0, "조기상환배리어", barrier_list)
-    raw_df.insert(0, "유형", type_list)
-    raw_df.insert(0, "낙인(KI)", ki_list)
+    if asset_col_idx is not None:
+        # 단일 컬럼에만 적용되므로 map 연산으로 초고속 처리 가능
+        type_series = raw_df.iloc[:, asset_col_idx].map(classify_asset)
+    else:
+        type_series = pd.Series("-", index=raw_df.index)
+
+    # 8. 최종 결과 삽입 (원래 로직 순서대로)
+    raw_df.insert(0, "통화", currency_series)
+    raw_df.insert(0, "조기상환주기", cycle_series)
+    raw_df.insert(0, "만기", maturity_series)
+    raw_df.insert(0, "조기상환배리어", barrier_series)
+    raw_df.insert(0, "유형", type_series)
+    raw_df.insert(0, "낙인(KI)", ki_series)
     
     return raw_df
