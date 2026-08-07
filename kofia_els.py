@@ -94,7 +94,6 @@ def parse_kofia_file(file_path):
                     break
             if asset_col_idx is not None: break
 
-    # 💡 에러 해결: 안전하게 모든 요소를 str()로 감싼 뒤 병합하여 Float 충돌 방지
     row_text_series = raw_df.apply(lambda row: ' '.join(str(x) for x in row.values), axis=1)
 
     # 2. 통화(Currency) 추출
@@ -108,7 +107,6 @@ def parse_kofia_file(file_path):
     m5_ext = row_text_series.str.extract(r"월지급\s*(?:배리어|베리어)?\s*(\d{2,3})")[0]
     no_ki_mask = row_text_series.str.contains(r"(?:No\s*KI|노낙인|노녹인|No\s*Knock[\s\-]*in|KI\s*없음|낙인\s*없음|녹인\s*없음|K/I\s*없음)", case=False, regex=True)
     
-    # 순차적 매칭
     ki_series = m1_ext.combine_first(m2_ext).combine_first(m3_ext).combine_first(m4_ext).combine_first(m5_ext)
     ki_series = np.where(ki_series.notna(), ki_series, np.where(no_ki_mask, "노낙인", "-"))
 
@@ -129,7 +127,7 @@ def parse_kofia_file(file_path):
     index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "DOW", "NDX", "항셍", "NASDAQ100", "나스닥100", "NASDAQ 100", "나스닥 100"]
     
     def classify_asset(asset_val):
-        asset_str = str(asset_val) # 안전을 위해 문자로 변환
+        asset_str = str(asset_val)
         if "기초자산" in asset_str or asset_str.strip() in ("nan", ""):
             return "-"
         
