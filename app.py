@@ -11,7 +11,7 @@ import os
 import requests
 
 st.set_page_config(page_title="ELS 상품 현황", page_icon="🎯", layout="wide")
-st.title("🎯 (위험도 분석 적용)")
+st.title("🎯 ELS 상품 현황")
 st.markdown("금투협 최신 데이터 반영")
 
 @st.cache_data(ttl=3600)
