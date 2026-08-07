@@ -44,12 +44,12 @@ def format_product(row, number):
     knock_in = row.get("낙인(KI)", "-")
     coupon = row.get("수익률_텍스트", "-")
     
-    # 💡 요청하신 3가지 항목 추가!
+    # 💡 요청하신 3가지 항목
     maturity = row.get("만기", "-")
     cycle = row.get("조기상환주기", "-")
     barrier = row.get("조기상환배리어", "-")
 
-    # 💡 [요청 반영] 보기 좋게 문자로 조립 + 수익률 강조 괄호 【 】 추가!
+    # 💡 보기 좋게 문자로 조립 + 수익률 강조 괄호 【 】 추가
     return (
         f"{number}. {issuer} {name}\n"
         f"기초: {underlying}\n"
@@ -69,12 +69,11 @@ def send_sms(text):
         return
 
     service = SolapiMessageService(api_key=api_key, api_secret=api_secret)
-    to_numbers = [num.strip() for num in to_numbers_str.split(",")]
+    
+    # 💡 최적화: 리스트 컴프리헨션으로 공백 번호 안전하게 제거
+    to_numbers = [num.strip() for num in to_numbers_str.split(",") if num.strip()]
 
     for to_num in to_numbers:
-        if not to_num: 
-            continue
-            
         try:
             message = RequestMessage(from_=from_num, to=to_num, text=text)
             service.send(message)
@@ -83,34 +82,30 @@ def send_sms(text):
             logging.error(f"❌ {to_num} 번호 발송 실패: {e}")
 
 def run():
-    import re
-    
     logging.info("ELS 리포트 발송 준비 시작")
     
     # 1. kofia_sms.py에서 지수형 필터링 & 수익률 정렬이 완료된 데이터 가져오기
     products = get_filtered_els()
-    if products.empty:
+    if products is None or products.empty:
         logging.info("조건에 맞는 상품이 없습니다.")
         return
 
+    # 💡 최적화: SettingWithCopyWarning 방지
+    products = products.copy()
     products["_product_id"] = products["상품명"].astype(str).str.strip()
     sent_ids = load_sent_ids()
 
-    def get_numeric_ki(row):
-        try:
-            val_str = str(row.get("낙인(KI)", "0")).strip()
-            if "노낙인" in val_str or "없음" in val_str or val_str == "-" or val_str == "":
-                return 0.0
-            numbers = re.findall(r"[-+]?\d*\.?\d+", val_str)
-            return float(numbers[0]) if numbers else 0.0
-        except:
-            return 0.0
-
-    # kofia_sms.py에서 수익률을 이미 숫자로 주므로 복잡한 추출 코드가 필요 없습니다.
+    # 💡 최적화: Pandas Vectorized 연산을 통한 낙인(KI) 초고속 추출
+    ki_series = products["낙인(KI)"].astype(str).str.strip()
+    mask_invalid = ki_series.str.contains("노낙인|없음", na=False) | ki_series.isin(["-", ""])
+    
+    extracted_ki = ki_series.str.extract(r'([-+]?\d*\.?\d+)')[0].astype(float).fillna(0.0)
+    extracted_ki[mask_invalid] = 0.0 # 노낙인 등의 텍스트 처리
+    
+    products["_sort_ki"] = extracted_ki
     products["_sort_yield"] = products["수익률"]
-    products["_sort_ki"] = products.apply(get_numeric_ki, axis=1)
 
-    # 노낙인 제외 (정상적인 데이터만 추려냄)
+    # 2. 노낙인 제외 (정상적인 데이터만 추려냄)
     valid_products = products[products["_sort_ki"] > 0]
     
     if valid_products.empty:
@@ -134,7 +129,6 @@ def run():
     newly_sent_product_ids = []
     
     def append_to_message(group, ki_val):
-        # 💡 [요청 반영] 문자가 크고 굵어 보이도록 테두리 적용 및 한 줄 띄우기
         message_lines.append(f"  ■ 낙인 {ki_val} (상위수익률 TOP 5)")
         message_lines.append("") # 띄어쓰기
         
@@ -180,13 +174,17 @@ def run():
 
     final_text = "\n".join(message_lines)
     
+    # 💡 최적화: 문자열 컷오프 시 안전하게 잘림 표시(...) 추가
+    if len(final_text) > MAX_MESSAGE_LENGTH:
+        final_text = final_text[:MAX_MESSAGE_LENGTH - 3] + "..."
+    
     # 5. 발송 및 장부 업데이트
-    send_sms(final_text[:MAX_MESSAGE_LENGTH])
+    send_sms(final_text)
 
     sent_ids.update(newly_sent_product_ids)
     
-    with open('sent_ids.json', 'w', encoding='utf-8') as f:
-        json.dump(list(sent_ids), f, ensure_ascii=False, indent=2)
+    # 💡 버그 수정: 항상 파일이 존재하는 절대 경로(STATE_FILE)에 저장하여 크론탭 실행 시 오류 방지
+    STATE_FILE.write_text(json.dumps(list(sent_ids), ensure_ascii=False, indent=2), encoding='utf-8')
         
     logging.info(f"🎉 리포트 발송 완료! (보고된 상품 수: {len(newly_sent_product_ids)}건, 누적 장부: {len(sent_ids)}건)")
 
