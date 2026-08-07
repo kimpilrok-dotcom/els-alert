@@ -10,9 +10,9 @@ import json
 import os
 import requests
 
-st.set_page_config(page_title="나만의 ELS 검색기", page_icon="🎯", layout="wide")
-st.title("🎯 나만의 맞춤형 ELS/DLS 검색기 (위험도 분석 적용)")
-st.markdown("금투협 최신 데이터를 바탕으로 **원하는 조건의 상품만 쏙쏙** 골라보세요!")
+st.set_page_config(page_title="ELS 상품 현황", page_icon="🎯", layout="wide")
+st.title("🎯 (위험도 분석 적용)")
+st.markdown("금투협 최신 데이터 반영")
 
 @st.cache_data(ttl=3600)
 def get_data():
