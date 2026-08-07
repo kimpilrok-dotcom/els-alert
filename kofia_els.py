@@ -1,7 +1,7 @@
 import os, glob, time, platform
 import re
 import pandas as pd
-import numpy as np  # 💡 벡터 연산을 위해 추가되었습니다.
+import numpy as np
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -79,7 +79,7 @@ def parse_kofia_file(file_path):
     raw_df = pd.read_excel(file_path, engine="xlrd")
     raw_df.columns = raw_df.columns.astype(str)
     
-    # 1. 기초자산 컬럼 인덱스 찾기 (기존 로직 유지)
+    # 1. 기초자산 컬럼 인덱스 찾기
     asset_col_idx = None
     prod_col_idx = None
     for j in range(len(raw_df.columns)):
@@ -94,13 +94,13 @@ def parse_kofia_file(file_path):
                     break
             if asset_col_idx is not None: break
 
-    # 💡 최적화: 행 전체 텍스트를 한 번에 합치기 (Vectorized)
-    row_text_series = raw_df.astype(str).apply(lambda x: ' '.join(x), axis=1)
+    # 💡 에러 해결: 안전하게 모든 요소를 str()로 감싼 뒤 병합하여 Float 충돌 방지
+    row_text_series = raw_df.apply(lambda row: ' '.join(str(x) for x in row.values), axis=1)
 
     # 2. 통화(Currency) 추출
     currency_series = np.where(row_text_series.str.contains(r"USD|달러", case=False, regex=True), "USD", "KRW")
 
-    # 3. 낙인(KI) 추출 (기존 if/elif 체인을 Series 우선순위 결합으로 변경)
+    # 3. 낙인(KI) 추출
     m1_ext = row_text_series.str.extract(r"(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})", flags=re.IGNORECASE)[0]
     m2_ext = row_text_series.str.extract(r"(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)", flags=re.IGNORECASE)[0]
     m3_ext = row_text_series.str.extract(r"-\s*\d{2,3}\s*/\s*(\d{2,3})")[0]
@@ -108,7 +108,7 @@ def parse_kofia_file(file_path):
     m5_ext = row_text_series.str.extract(r"월지급\s*(?:배리어|베리어)?\s*(\d{2,3})")[0]
     no_ki_mask = row_text_series.str.contains(r"(?:No\s*KI|노낙인|노녹인|No\s*Knock[\s\-]*in|KI\s*없음|낙인\s*없음|녹인\s*없음|K/I\s*없음)", case=False, regex=True)
     
-    # combine_first를 통해 m1 -> m2 -> m3 순으로 먼저 매칭된 값을 채움
+    # 순차적 매칭
     ki_series = m1_ext.combine_first(m2_ext).combine_first(m3_ext).combine_first(m4_ext).combine_first(m5_ext)
     ki_series = np.where(ki_series.notna(), ki_series, np.where(no_ki_mask, "노낙인", "-"))
 
@@ -129,11 +129,12 @@ def parse_kofia_file(file_path):
     index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "DOW", "NDX", "항셍", "NASDAQ100", "나스닥100", "NASDAQ 100", "나스닥 100"]
     
     def classify_asset(asset_val):
-        if not isinstance(asset_val, str) or "기초자산" in asset_val or asset_val.strip() in ("nan", ""):
+        asset_str = str(asset_val) # 안전을 위해 문자로 변환
+        if "기초자산" in asset_str or asset_str.strip() in ("nan", ""):
             return "-"
         
         tag_br = chr(60) + "BR/" + chr(62)
-        clean_asset = asset_val.upper().replace(tag_br, ",").replace("\n", ",").replace("/", ",")
+        clean_asset = asset_str.upper().replace(tag_br, ",").replace("\n", ",").replace("/", ",")
         assets = [a.strip() for a in clean_asset.split(",") if a.strip()]
         
         has_index = False
@@ -153,12 +154,11 @@ def parse_kofia_file(file_path):
         return "-"
 
     if asset_col_idx is not None:
-        # 단일 컬럼에만 적용되므로 map 연산으로 초고속 처리 가능
         type_series = raw_df.iloc[:, asset_col_idx].map(classify_asset)
     else:
         type_series = pd.Series("-", index=raw_df.index)
 
-    # 8. 최종 결과 삽입 (원래 로직 순서대로)
+    # 8. 최종 결과 삽입
     raw_df.insert(0, "통화", currency_series)
     raw_df.insert(0, "조기상환주기", cycle_series)
     raw_df.insert(0, "만기", maturity_series)
