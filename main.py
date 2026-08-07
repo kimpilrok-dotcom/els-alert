@@ -7,7 +7,7 @@ import pandas as pd
 from solapi import SolapiMessageService
 from solapi.model import RequestMessage
 
-# 💡 알림용으로 특화된 파일을 불러옵니다!
+# 💡 kofia_sms.py 에서 의존성 주입
 from kofia_sms import get_filtered_els
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -37,19 +37,16 @@ def load_sent_ids():
         return set()
 
 def format_product(row, number):
-    # 💡 kofia_sms.py에서 깨끗하게 다듬어준 데이터를 바로 가져다 씁니다.
     issuer = row.get("발행회사", "-")
     name = row.get("상품명", "-")
     underlying = row.get("기초자산", "-")
     knock_in = row.get("낙인(KI)", "-")
     coupon = row.get("수익률_텍스트", "-")
     
-    # 💡 요청하신 3가지 항목
     maturity = row.get("만기", "-")
     cycle = row.get("조기상환주기", "-")
     barrier = row.get("조기상환배리어", "-")
 
-    # 💡 보기 좋게 문자로 조립 + 수익률 강조 괄호 【 】 추가
     return (
         f"{number}. {issuer} {name}\n"
         f"기초: {underlying}\n"
@@ -69,8 +66,6 @@ def send_sms(text):
         return
 
     service = SolapiMessageService(api_key=api_key, api_secret=api_secret)
-    
-    # 💡 최적화: 리스트 컴프리헨션으로 공백 번호 안전하게 제거
     to_numbers = [num.strip() for num in to_numbers_str.split(",") if num.strip()]
 
     for to_num in to_numbers:
@@ -84,35 +79,30 @@ def send_sms(text):
 def run():
     logging.info("ELS 리포트 발송 준비 시작")
     
-    # 1. kofia_sms.py에서 지수형 필터링 & 수익률 정렬이 완료된 데이터 가져오기
     products = get_filtered_els()
     if products is None or products.empty:
         logging.info("조건에 맞는 상품이 없습니다.")
         return
 
-    # 💡 최적화: SettingWithCopyWarning 방지
     products = products.copy()
     products["_product_id"] = products["상품명"].astype(str).str.strip()
     sent_ids = load_sent_ids()
 
-    # 💡 최적화: Pandas Vectorized 연산을 통한 낙인(KI) 초고속 추출
     ki_series = products["낙인(KI)"].astype(str).str.strip()
     mask_invalid = ki_series.str.contains("노낙인|없음", na=False) | ki_series.isin(["-", ""])
     
     extracted_ki = ki_series.str.extract(r'([-+]?\d*\.?\d+)')[0].astype(float).fillna(0.0)
-    extracted_ki[mask_invalid] = 0.0 # 노낙인 등의 텍스트 처리
+    extracted_ki[mask_invalid] = 0.0
     
     products["_sort_ki"] = extracted_ki
     products["_sort_yield"] = products["수익률"]
 
-    # 2. 노낙인 제외 (정상적인 데이터만 추려냄)
     valid_products = products[products["_sort_ki"] > 0]
     
     if valid_products.empty:
         logging.info("유효한 낙인(KI) 데이터가 없습니다.")
         return
 
-    # 3. 최저 낙인 / 차최저 낙인 찾기
     ki_levels = sorted(valid_products["_sort_ki"].unique())
     lowest_ki = ki_levels[0]
     second_lowest_ki = ki_levels[1] if len(ki_levels) > 1 else None
@@ -124,13 +114,12 @@ def run():
     else:
         group2 = pd.DataFrame()
 
-    # 4. 문자 메시지 조립하기
     message_lines = ["[오늘의 알짜 ELS 리포트]\n"]
     newly_sent_product_ids = []
     
     def append_to_message(group, ki_val):
         message_lines.append(f"  ■ 낙인 {ki_val} (상위수익률 TOP 5)")
-        message_lines.append("") # 띄어쓰기
+        message_lines.append("")
         
         for idx, (_, row) in enumerate(group.iterrows(), 1):
             pid = row["_product_id"]
@@ -138,7 +127,6 @@ def run():
             
             formatted_product = format_product(row, idx)
             
-            # 청약기간 포맷팅 (YYYYMMDD~YYYYMMDD 형태를 00.00 ~ 00.00으로 이쁘게 변경)
             period_str = str(row.get("청약기간", "-"))
             if "~" in period_str:
                 s_date, e_date = period_str.split("~")
@@ -151,7 +139,6 @@ def run():
             
             formatted_product = f"{formatted_product}\n{period_str}"
             
-            # USD(달러) 상품인지 확인하기
             is_usd = False
             search_text = str(row.get("상품명", "")) + str(row.get("비고", "")) + str(row.get("상품유형", ""))
             if "USD" in search_text.upper() or "달러" in search_text:
@@ -159,13 +146,12 @@ def run():
                 
             usd_tag = "💵[USD] " if is_usd else ""
             
-            # 신규 / 기존 태그 부착
             if pid not in sent_ids:
                 message_lines.append(f"✨[신규] {usd_tag}{formatted_product}\n")
             else:
                 message_lines.append(f"  [기존] {usd_tag}{formatted_product}\n")
         
-        message_lines.append("") # 그룹 간 띄어쓰기
+        message_lines.append("") 
 
     if not group1.empty:
         append_to_message(group1, lowest_ki)
@@ -174,16 +160,12 @@ def run():
 
     final_text = "\n".join(message_lines)
     
-    # 💡 최적화: 문자열 컷오프 시 안전하게 잘림 표시(...) 추가
     if len(final_text) > MAX_MESSAGE_LENGTH:
         final_text = final_text[:MAX_MESSAGE_LENGTH - 3] + "..."
     
-    # 5. 발송 및 장부 업데이트
     send_sms(final_text)
-
     sent_ids.update(newly_sent_product_ids)
     
-    # 💡 버그 수정: 항상 파일이 존재하는 절대 경로(STATE_FILE)에 저장하여 크론탭 실행 시 오류 방지
     STATE_FILE.write_text(json.dumps(list(sent_ids), ensure_ascii=False, indent=2), encoding='utf-8')
         
     logging.info(f"🎉 리포트 발송 완료! (보고된 상품 수: {len(newly_sent_product_ids)}건, 누적 장부: {len(sent_ids)}건)")
