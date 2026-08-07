@@ -43,7 +43,6 @@ def get_market_data():
     
     end_target = today_kst + datetime.timedelta(days=1)
     end_date_str = end_target.strftime('%Y-%m-%d')
-    
     start_13y_str = (today_kst - datetime.timedelta(days=365*13 + 5)).strftime('%Y-%m-%d')
     
     hist_dict = {}
@@ -241,34 +240,36 @@ try:
         else:
             tab2_df = filtered_df.copy()
             
-            def extract_ki(val):
-                s = str(val).strip()
-                if "노낙인" in s or "없음" in s or s in ("-", ""): return 999.0
-                nums = re.findall(r"[-+]?\d*\.?\d+", s)
-                return float(nums[0]) if nums else 999.0
+            # 💡 최적화: iterrows 외부에서 벡터 연산으로 수익률 및 낙인값 미리 계산 (병목 제거)
+            ki_str = tab2_df["낙인(KI)"].astype(str).str.strip()
+            ki_num = ki_str.str.extract(r'([-+]?\d*\.?\d+)')[0].astype(float).fillna(999.0)
+            ki_num[ki_str.str.contains("노낙인|없음|-|^$", na=False, regex=True)] = 999.0
+            tab2_df["_sort_ki"] = ki_num
             
             yield_cols = [c for c in tab2_df.columns if "수익" in str(c)]
+            yield_series = pd.Series("0", index=tab2_df.index)
+            
+            for col in yield_cols:
+                c_str = tab2_df[col].astype(str).str.replace(",", "", regex=False)
+                valid = ~c_str.str.lower().isin(['nan', 'none', ''])
+                update = (yield_series == "0") & valid
+                yield_series = np.where(update, c_str, yield_series)
+            
+            zero_mask = yield_series == "0"
+            if "상품명" in tab2_df.columns:
+                ext = tab2_df.loc[zero_mask, "상품명"].astype(str).str.extract(r"(?:연\s*|)([\d\.]+)%")[0]
+                yield_series.loc[zero_mask] = ext.fillna("0")
+                
+            y_num = yield_series.astype(str).str.replace(r"[^\d\.]", "", regex=True)
+            tab2_df["_sort_yield"] = pd.to_numeric(y_num, errors='coerce').fillna(0.0)
+            
+            # 정렬 및 렌더링에 필요한 컬럼 식별
+            tab2_df = tab2_df.sort_values(by=["_sort_ki", "_sort_yield"], ascending=[True, False])
+            
             start_cols = [c for c in tab2_df.columns if "청약" in str(c) and "시작" in str(c)]
             end_cols = [c for c in tab2_df.columns if "청약" in str(c) and "종료" in str(c)]
             period_cols = [c for c in tab2_df.columns if "청약" in str(c) and "기간" in str(c)]
 
-            def extract_yield(row):
-                p_name = str(row.get("상품명", "-"))
-                for c in yield_cols:
-                    v = str(row[c])
-                    if v.lower() != "nan" and v != "":
-                        nums = re.findall(r"[-+]?\d*\.?\d+", v.replace(",", ""))
-                        if nums: return float(nums[0])
-                m = re.search(r"(?:연\s*|)([\d\.]+)%", p_name)
-                if m: return float(m.group(1))
-                return 0.0
-            
-            tab2_df["_sort_ki"] = tab2_df["낙인(KI)"].apply(extract_ki)
-            tab2_df["_sort_yield"] = tab2_df.apply(extract_yield, axis=1)
-            tab2_df = tab2_df.sort_values(by=["_sort_ki", "_sort_yield"], ascending=[True, False])
-
-            # 💡 [초고속 렌더링을 위한 사전 계산 Block]
-            # 1. 13년치 시뮬레이션 데이터를 단 6개 기초자산에 대해서만 선제적으로 1번만 계산합니다.
             precomputed_sim_data = {}
             window_size = 252 * 3
             
@@ -293,12 +294,11 @@ try:
                         'total_sim_days': total_sim_days
                     }
             
-            # 2. 반복문에 들어가기 전, 실시간 가격 API 호출을 미리 일괄 완료하여 캐싱합니다.
             live_price_cache = {}
             for asset_name in TICKER_MAP.keys():
                 get_live_price_cached(asset_name, hist_dict, live_price_cache)
 
-            # --- 반복문 시작 ---
+            # 렌더링 루프 (데이터는 모두 위에서 준비 완료됨)
             for idx, row in tab2_df.iterrows():
                 def get_val(col_name):
                     v = str(row.get(col_name, "-"))
@@ -308,7 +308,7 @@ try:
                 currency = get_val("통화")
                 assets = get_val("기초자산")
                 ki = get_val("낙인(KI)")
-                ki_val = extract_ki(ki)
+                ki_val = row["_sort_ki"]
                 maturity = get_val("만기")
                 cycle = get_val("조기상환주기")
                 barrier = get_val("조기상환배리어")
@@ -319,15 +319,7 @@ try:
                     if parts and parts[0].replace('.','',1).isdigit():
                         first_barrier_val = float(parts[0])
 
-                yield_val = "-"
-                for c in yield_cols:
-                    v = str(row[c])
-                    if v.lower() != "nan" and v != "":
-                        yield_val = f"{v}%" if v.replace('.','',1).isdigit() else v
-                        break
-                if yield_val == "-":
-                    m = re.search(r"(?:연\s*|)([\d\.]+)%", prod_name)
-                    if m: yield_val = f"연 {m.group(1)}%"
+                yield_val = f"{row['_sort_yield']}%" if row["_sort_yield"] > 0 else "-"
                         
                 start_date, end_date = "", ""
                 for c in start_cols:
@@ -352,7 +344,6 @@ try:
                     for a in asset_list:
                         matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in a.upper()), None)
                         
-                        # 💡 최적화: 미리 계산해둔 딕셔너리에서 값만 쏙 빼서 0.001초 만에 비교합니다.
                         if matched_ticker and matched_ticker in precomputed_sim_data:
                             sim_data = precomputed_sim_data[matched_ticker]
                             
@@ -422,9 +413,7 @@ try:
                         matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in norm_current.upper()), None)
                         
                         if matched_ticker and matched_ticker in hist_dict:
-                            # 💡 캐시에서 즉시 불러오므로 병목 통신 0회
                             current_price = live_price_cache.get(matched_ticker, 0.0)
-                            
                             current_price_str = f"{current_price:,.2f}"
                             
                             if ki_val != 999.0:
