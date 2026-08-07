@@ -240,7 +240,7 @@ try:
         else:
             tab2_df = filtered_df.copy()
             
-            # 💡 최적화: iterrows 외부에서 벡터 연산으로 수익률 및 낙인값 미리 계산 (병목 제거)
+            # 💡 최적화 구간 시작
             ki_str = tab2_df["낙인(KI)"].astype(str).str.strip()
             ki_num = ki_str.str.extract(r'([-+]?\d*\.?\d+)')[0].astype(float).fillna(999.0)
             ki_num[ki_str.str.contains("노낙인|없음|-|^$", na=False, regex=True)] = 999.0
@@ -255,6 +255,9 @@ try:
                 update = (yield_series == "0") & valid
                 yield_series = np.where(update, c_str, yield_series)
             
+            # 💡 [버그 픽스] np.where 결과를 다시 Pandas Series로 원복!
+            yield_series = pd.Series(yield_series, index=tab2_df.index)
+            
             zero_mask = yield_series == "0"
             if "상품명" in tab2_df.columns:
                 ext = tab2_df.loc[zero_mask, "상품명"].astype(str).str.extract(r"(?:연\s*|)([\d\.]+)%")[0]
@@ -263,7 +266,6 @@ try:
             y_num = yield_series.astype(str).str.replace(r"[^\d\.]", "", regex=True)
             tab2_df["_sort_yield"] = pd.to_numeric(y_num, errors='coerce').fillna(0.0)
             
-            # 정렬 및 렌더링에 필요한 컬럼 식별
             tab2_df = tab2_df.sort_values(by=["_sort_ki", "_sort_yield"], ascending=[True, False])
             
             start_cols = [c for c in tab2_df.columns if "청약" in str(c) and "시작" in str(c)]
@@ -298,7 +300,7 @@ try:
             for asset_name in TICKER_MAP.keys():
                 get_live_price_cached(asset_name, hist_dict, live_price_cache)
 
-            # 렌더링 루프 (데이터는 모두 위에서 준비 완료됨)
+            # 렌더링 루프
             for idx, row in tab2_df.iterrows():
                 def get_val(col_name):
                     v = str(row.get(col_name, "-"))
