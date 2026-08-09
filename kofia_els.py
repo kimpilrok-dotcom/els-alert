@@ -1,104 +1,167 @@
+import os, glob, time, platform
+import re
 import pandas as pd
 import numpy as np
-import re
-from kofia_els import automate_download, parse_kofia_file
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-def get_filtered_els():
-    file_path = automate_download()
-    if not file_path:
-        return None
-        
-    df = parse_kofia_file(file_path)
-    if df is None or df.empty:
-        return None
+def automate_download():
+    DOWNLOAD_DIR = os.path.abspath(os.path.join(os.getcwd(), "downloads"))
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     
-    if "유형" in df.columns:
-        df = df[df["유형"] == "지수형"].copy()
-        
-    if df.empty:
-        return pd.DataFrame()
+    for f in glob.glob(os.path.join(DOWNLOAD_DIR, "*.*")):
+        try: os.remove(f)
+        except: pass
 
-    # 💡 최적화 1: 이중 루프 제거 (매 행마다 컬럼을 찾지 않고 단 1번만 미리 탐색)
-    yield_cols = [c for c in df.columns if "수익" in str(c)]
-    start_cols = [c for c in df.columns if "청약" in str(c) and "시작" in str(c)]
-    end_cols = [c for c in df.columns if "청약" in str(c) and "종료" in str(c)]
-    period_cols = [c for c in df.columns if "청약" in str(c) and "기간" in str(c)]
-
-    # --- 1. 수익률 추출 (Vectorized) ---
-    yield_series = pd.Series("0", index=df.index)
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    for col in yield_cols:
-        col_str = df[col].astype(str).str.strip()
-        valid_mask = ~col_str.str.lower().isin(['nan', 'none', ''])
-        update_mask = (yield_series == "0") & valid_mask
-        yield_series = np.where(update_mask, col_str, yield_series)
+    prefs = {
+        "download.default_directory": DOWNLOAD_DIR,
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True,
+        "profile.default_content_settings.popups": 0
+    }
+    options.add_experimental_option("prefs", prefs)
     
-    yield_series = pd.Series(yield_series, index=df.index)
-    
-    if "상품명" in df.columns:
-        zero_mask = (yield_series == "0")
-        extracted = df.loc[zero_mask, "상품명"].astype(str).str.extract(r"(?:연\s*|)([\d\.]+)%")[0]
-        yield_series.loc[zero_mask] = extracted.fillna("0")
-        
-    yield_num = yield_series.astype(str).str.replace(r"[^\d\.]", "", regex=True)
-    yield_num = pd.to_numeric(yield_num, errors='coerce').fillna(0.0)
-
-    # --- 2. 청약기간 조립 (Vectorized) ---
-    def get_safe_col(cols):
-        if cols:
-            return df[cols[0]].astype(str).str.split(' ').str[0].replace({r"(?i)nan": "", "None": "", "<NA>": ""}, regex=True)
-        return pd.Series("", index=df.index)
-
-    start_series = get_safe_col(start_cols)
-    end_series = get_safe_col(end_cols)
-    
-    combined_period = np.where((start_series != "") & (end_series != ""), start_series + " ~ " + end_series, "")
-    
-    if period_cols:
-        p_col = df[period_cols[0]].astype(str).replace({r"(?i)nan": "", "None": "", "<NA>": ""}, regex=True)
-        final_period = np.where(combined_period != "", combined_period, p_col)
+    if platform.system() == "Linux":
+        options.binary_location = "/usr/bin/chromium"
+        service = Service("/usr/bin/chromedriver")
     else:
-        final_period = combined_period
+        service = Service(ChromeDriverManager().install())
         
-    final_period = np.where(final_period == "", "-", final_period)
-    period_series = pd.Series(final_period, index=df.index)
-
-    # --- 3. 문자열 클리닝 함수 (💡 에러 해결: 객체 타입 검사 순서 변경) ---
-    def clean_vectorized(col_name, default_val="-"):
-        if isinstance(col_name, pd.Series):
-            series = col_name
-        elif col_name not in df.columns:
-            return pd.Series(default_val, index=df.index)
-        else:
-            series = df[col_name]
-            
-        # 강제 형변환 및 결측치 치환
-        s = series.astype(str).replace({r"(?i)^nan$": default_val, "^None$": default_val, "^$": default_val}, regex=True)
-        # HTML 태그 제거
-        s = s.str.replace(r'<br\s*/?>', ' ', case=False, regex=True)
-        # Index 단어 제거
-        s = s.str.replace(r'\bIndex\b', '', case=False, regex=True)
-        # 띄어쓰기 정리
-        s = s.str.replace(r'\s+', ' ', regex=True).str.strip()
-        
-        return s.replace("nan", default_val)
-
-    # --- 4. 결과 DataFrame 생성 (고속 매핑) ---
-    result_df = pd.DataFrame({
-        "상품명": clean_vectorized("상품명"),
-        "기초자산": clean_vectorized("기초자산"),
-        "낙인(KI)": clean_vectorized("낙인(KI)", "노낙인"),
-        "수익률": yield_num,
-        "수익률_텍스트": yield_num.astype(str) + "%",
-        "청약기간": clean_vectorized(period_series),
-        "발행회사": clean_vectorized("발행회사"),
-        "만기": clean_vectorized("만기"),
-        "조기상환주기": clean_vectorized("조기상환주기"),
-        "조기상환배리어": clean_vectorized("조기상환배리어")
-    })
+    driver = webdriver.Chrome(service=service, options=options)
     
-    # 수익률 기준 정렬 및 인덱스 리셋
-    if not result_df.empty:
-        result_df = result_df.sort_values(by="수익률", ascending=False).reset_index(drop=True)
+    try:
+        driver.execute_cdp_cmd("Page.setDownloadBehavior", {
+            "behavior": "allow",
+            "downloadPath": DOWNLOAD_DIR
+        })
         
-    return result_df
+        driver.get("https://dis.kofia.or.kr/websquare/index.jsp?w2xPath=/wq/etcann/DISDLSSubscribing.xml&divisionId=MDIS04007001000000&serviceId=SDIS04007001000")
+        wait = WebDriverWait(driver, 30)
+        
+        wait.until(EC.presence_of_element_located((By.XPATH, "//table[contains(@id, 'body_table')]")))
+        time.sleep(10)
+        
+        target_xpath = "/html/body/div[1]/div[2]/div/div[2]/div[3]/div/div[1]/div[2]/a[1]"
+        btn = wait.until(EC.presence_of_element_located((By.XPATH, target_xpath)))
+        
+        driver.execute_script("arguments[0].click();", btn)
+        
+        for i in range(60):
+            time.sleep(2)
+            if i % 5 == 0:
+                try: driver.execute_script("arguments[0].click();", btn)
+                except: pass
+            files = glob.glob(os.path.join(DOWNLOAD_DIR, "*.*"))
+            excel_files = [f for f in files if f.endswith(".xls") or f.endswith(".xlsx")]
+            if excel_files:
+                time.sleep(2)
+                return excel_files[0]
+        folder_contents = os.listdir(DOWNLOAD_DIR)
+        raise Exception(f"엑셀 다운로드 실패. 폴더 내부 상태: {folder_contents}")
+    finally:
+        driver.quit()
+
+def parse_kofia_file(file_path):
+    raw_df = pd.read_excel(file_path, engine="xlrd")
+    raw_df.columns = raw_df.columns.astype(str)
+    
+    # 1. 기초자산 컬럼 인덱스 찾기
+    asset_col_idx = None
+    prod_col_idx = None
+    for j in range(len(raw_df.columns)):
+        if "기초자산" in str(raw_df.columns[j]): asset_col_idx = j
+        if "상품명" in str(raw_df.columns[j]): prod_col_idx = j
+
+    if asset_col_idx is None:
+        for i in range(min(15, len(raw_df))):
+            for j in range(len(raw_df.columns)):
+                if "기초자산" in str(raw_df.iloc[i, j]):
+                    asset_col_idx = j
+                    break
+            if asset_col_idx is not None: break
+
+    row_text_series = raw_df.apply(lambda row: ' '.join(str(x) for x in row.values), axis=1)
+
+    # 2. 통화(Currency) 추출
+    currency_series = np.where(row_text_series.str.contains(r"USD|달러", case=False, regex=True), "USD", "KRW")
+
+    # 3. 낙인(KI) 추출
+    m1_ext = row_text_series.str.extract(r"(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)\s*[:\-_]?\s*(\d{2,3})", flags=re.IGNORECASE)[0]
+    m2_ext = row_text_series.str.extract(r"(\d{2,3})\s*(?:%|)\s*(?:KI|Knock[\s\-]*in|낙인|녹인|K/I)", flags=re.IGNORECASE)[0]
+    m3_ext = row_text_series.str.extract(r"-\s*\d{2,3}\s*/\s*(\d{2,3})")[0]
+    m4_ext = row_text_series.str.extract(r"(\d{2,3})%-\(")[0]
+    m5_ext = row_text_series.str.extract(r"월지급\s*(?:배리어|베리어)?\s*(\d{2,3})")[0]
+    no_ki_mask = row_text_series.str.contains(r"(?:No\s*KI|노낙인|노녹인|No\s*Knock[\s\-]*in|KI\s*없음|낙인\s*없음|녹인\s*없음|K/I\s*없음)", case=False, regex=True)
+    
+    ki_series = m1_ext.combine_first(m2_ext).combine_first(m3_ext).combine_first(m4_ext).combine_first(m5_ext)
+    ki_series = np.where(ki_series.notna(), ki_series, np.where(no_ki_mask, "노낙인", "-"))
+
+    # 4. 배리어(Barrier) 추출
+    clean_text_series = row_text_series.str.replace(r"\([A-Za-z0-9]+\)", "", regex=True)
+    barrier_ext = clean_text_series.str.extract(r"(\d{2,3}(?:[-\/,]\s*\d{2,3}){2,})")[0]
+    barrier_series = barrier_ext.str.replace(r"[/,]", "-", regex=True).str.replace(" ", "", regex=False).fillna("-")
+
+    # 5. 만기(Maturity) 추출
+    maturity_ext = row_text_series.str.extract(r"(\d+(?:\.\d+)?)\s*(?:년|y)", flags=re.IGNORECASE)[0]
+    maturity_series = np.where(maturity_ext.notna(), maturity_ext + "년", "-")
+
+    # 6. 주기(Cycle) 추출
+    cycle_ext = row_text_series.str.extract(r"(?:^|[^0-9\.])(\d{1,3})\s*(?:개월|m)", flags=re.IGNORECASE)[0]
+    cycle_series = np.where(cycle_ext.notna(), cycle_ext + "개월", "-")
+
+    # 7. 기초자산 유형(Type) 분류
+    index_keywords = ["INDEX", "지수", "KOSPI", "S&P", "EURO", "HSCEI", "NIKKEI", "STOXX", "NIFTY", "CSI", "KRX", "코스피", "다우", "DOW", "NDX", "항셍", "NASDAQ100", "나스닥100", "NASDAQ 100", "나스닥 100"]
+    
+    def classify_asset(asset_val):
+        asset_str = str(asset_val)
+        if "기초자산" in asset_str or asset_str.strip() in ("nan", ""):
+            return "-"
+        
+        tag_br = chr(60) + "BR/" + chr(62)
+        clean_asset = asset_str.upper().replace(tag_br, ",").replace("\n", ",").replace("/", ",")
+        assets = [a.strip() for a in clean_asset.split(",") if a.strip()]
+        
+        has_index = False
+        has_stock = False
+        
+        for asset in assets:
+            if re.search(r'\((NASDAQ|NYSE|나스닥|뉴욕|NY|AMEX)[^)]*\)', asset):
+                has_stock = True
+            elif any(k in asset for k in index_keywords):
+                has_index = True
+            else:
+                has_stock = True
+                
+        if has_index and has_stock: return "혼합형"
+        elif has_index: return "지수형"
+        elif has_stock: return "종목형"
+        return "-"
+
+    if asset_col_idx is not None:
+        type_series = raw_df.iloc[:, asset_col_idx].map(classify_asset)
+    else:
+        type_series = pd.Series("-", index=raw_df.index)
+
+    # 8. 최종 결과 삽입
+    raw_df.insert(0, "통화", currency_series)
+    raw_df.insert(0, "조기상환주기", cycle_series)
+    raw_df.insert(0, "만기", maturity_series)
+    raw_df.insert(0, "조기상환배리어", barrier_series)
+    raw_df.insert(0, "유형", type_series)
+    raw_df.insert(0, "낙인(KI)", ki_series)
+    
+    return raw_df
