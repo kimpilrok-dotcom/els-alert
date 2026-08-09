@@ -18,11 +18,13 @@ def get_filtered_els():
     if df.empty:
         return pd.DataFrame()
 
+    # 💡 최적화 1: 이중 루프 제거 (매 행마다 컬럼을 찾지 않고 단 1번만 미리 탐색)
     yield_cols = [c for c in df.columns if "수익" in str(c)]
     start_cols = [c for c in df.columns if "청약" in str(c) and "시작" in str(c)]
     end_cols = [c for c in df.columns if "청약" in str(c) and "종료" in str(c)]
     period_cols = [c for c in df.columns if "청약" in str(c) and "기간" in str(c)]
 
+    # --- 1. 수익률 추출 (Vectorized) ---
     yield_series = pd.Series("0", index=df.index)
     
     for col in yield_cols:
@@ -41,6 +43,7 @@ def get_filtered_els():
     yield_num = yield_series.astype(str).str.replace(r"[^\d\.]", "", regex=True)
     yield_num = pd.to_numeric(yield_num, errors='coerce').fillna(0.0)
 
+    # --- 2. 청약기간 조립 (Vectorized) ---
     def get_safe_col(cols):
         if cols:
             return df[cols[0]].astype(str).str.split(' ').str[0].replace({r"(?i)nan": "", "None": "", "<NA>": ""}, regex=True)
@@ -60,17 +63,27 @@ def get_filtered_els():
     final_period = np.where(final_period == "", "-", final_period)
     period_series = pd.Series(final_period, index=df.index)
 
+    # --- 3. 문자열 클리닝 함수 (💡 에러 해결: 객체 타입 검사 순서 변경) ---
     def clean_vectorized(col_name, default_val="-"):
-        if col_name not in df.columns and not isinstance(col_name, pd.Series):
+        if isinstance(col_name, pd.Series):
+            series = col_name
+        elif col_name not in df.columns:
             return pd.Series(default_val, index=df.index)
+        else:
+            series = df[col_name]
             
-        series = col_name if isinstance(col_name, pd.Series) else df[col_name]
+        # 강제 형변환 및 결측치 치환
         s = series.astype(str).replace({r"(?i)^nan$": default_val, "^None$": default_val, "^$": default_val}, regex=True)
+        # HTML 태그 제거
         s = s.str.replace(r'<br\s*/?>', ' ', case=False, regex=True)
+        # Index 단어 제거
         s = s.str.replace(r'\bIndex\b', '', case=False, regex=True)
+        # 띄어쓰기 정리
         s = s.str.replace(r'\s+', ' ', regex=True).str.strip()
+        
         return s.replace("nan", default_val)
 
+    # --- 4. 결과 DataFrame 생성 (고속 매핑) ---
     result_df = pd.DataFrame({
         "상품명": clean_vectorized("상품명"),
         "기초자산": clean_vectorized("기초자산"),
@@ -84,6 +97,7 @@ def get_filtered_els():
         "조기상환배리어": clean_vectorized("조기상환배리어")
     })
     
+    # 수익률 기준 정렬 및 인덱스 리셋
     if not result_df.empty:
         result_df = result_df.sort_values(by="수익률", ascending=False).reset_index(drop=True)
         
