@@ -344,7 +344,8 @@ try:
                 if ki_val != 999.0: 
                     asset_list = [p.strip() for p in str(assets).split(',')]
                     for a in asset_list:
-                        matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in a.upper()), None)
+                        # 👇 a.upper() 뒤에 .replace(" ", "") 를 추가하여 공백을 무시하고 매칭되게 합니다.
+                        matched_ticker = next((key for key in TICKER_MAP.keys() if key.upper() in a.upper().replace(" ", "")), None)
                         
                         if matched_ticker and matched_ticker in precomputed_sim_data:
                             sim_data = precomputed_sim_data[matched_ticker]
