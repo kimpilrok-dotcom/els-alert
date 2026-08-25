@@ -9,6 +9,7 @@ import datetime
 import json
 import os
 import requests
+import FinanceDataReader as fdr
 
 st.set_page_config(page_title="ELS 상품 현황", page_icon="🎯", layout="wide")
 st.title("🎯 ELS 상품 현황")
@@ -48,11 +49,24 @@ def get_market_data():
     hist_dict = {}
     for asset, ticker in TICKER_MAP.items():
         try:
-            df = yf.Ticker(ticker).history(start=start_13y_str, end=end_date_str)
-            if 'Close' in df.columns and not df.empty:
-                hist_dict[asset] = df[['Close']].dropna()
+            if asset == "KOSPI200":
+                # 💡 KOSPI200은 오류가 잦은 yfinance 대신 FinanceDataReader(종목코드: KS200) 사용
+                df = fdr.DataReader('KS200', start_13y_str, end_date_str)
+                if 'Close' in df.columns and not df.empty:
+                    # yfinance 데이터와 인덱스 형식을 맞추기 위해 timezone 제거
+                    if df.index.tz is not None:
+                        df.index = df.index.tz_localize(None)
+                    hist_dict[asset] = df[['Close']].dropna()
+            else:
+                # S&P500 등 해외 지수는 기존대로 yfinance 사용
+                df = yf.Ticker(ticker).history(start=start_13y_str, end=end_date_str)
+                if 'Close' in df.columns and not df.empty:
+                    if df.index.tz is not None:
+                        df.index = df.index.tz_localize(None)
+                    hist_dict[asset] = df[['Close']].dropna()
         except:
             pass
+            
     return hist_dict, end_date_str, start_13y_str
 
 @st.cache_data(ttl=600)
