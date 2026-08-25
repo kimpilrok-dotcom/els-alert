@@ -30,7 +30,7 @@ def get_data():
 TICKER_MAP = {
     "S&P500": "^GSPC",
     "EUROSTOXX50": "^STOXX50E",
-    "KOSPI200": "^KS200",
+    "KOSPI200": "^KS11",
     "NIKKEI225": "^N225",
     "HSCEI": "^HSCE",
     "NASDAQ100": "^NDX"
