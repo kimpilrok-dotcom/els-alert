@@ -374,7 +374,12 @@ try:
                             prob = (knock_in_count / weighted_total) * 100 if weighted_total > 0 else 0
                             
                             hit_indices = np.where(is_knock_in)[0]
-                            last_touch_dt = sim_data['dates'][hit_indices[-1]].strftime('%Y-%m-%d') if len(hit_indices) > 0 else None
+                            if len(hit_indices) > 0:
+                                # 💡 수정: 인덱스 맨 끝이 아니라, 실제 날짜들 중 가장 최신(Max) 날짜를 선택합니다.
+                                hit_dates = sim_data['dates'][hit_indices]
+                                last_touch_dt = hit_dates.max().strftime('%Y-%m-%d')
+                            else:
+                                last_touch_dt = None
                             
                             asset_stats.append({
                                 'ticker': matched_ticker,
