@@ -154,6 +154,15 @@ my_els_portfolio = get_my_portfolio_risk()
 with st.spinner("최신 지수와 ELS 데이터를 연동 중입니다... (최초 1회 소요)"):
     hist_dict, end_date_str, start_13y_str = get_market_data()
 
+# 👇 --- 여기서부터 복사해서 붙여넣으세요 (검증용 임시 코드) --- 👇
+st.warning("🔍 [데이터 검증 모드] KOSPI200 원본 데이터 확인")
+if "KOSPI200" in hist_dict:
+    st.write(f"가져온 데이터 개수: {len(hist_dict['KOSPI200'])} 일(row)")
+    st.dataframe(hist_dict["KOSPI200"])
+else:
+    st.error("KOSPI200 데이터가 로드되지 않았습니다.")
+# 👆 -------------------------------------------------------- 👆
+
 try:
     raw_df = get_data()
     
