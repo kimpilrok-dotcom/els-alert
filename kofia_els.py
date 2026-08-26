@@ -35,12 +35,7 @@ def automate_download():
     }
     options.add_experimental_option("prefs", prefs)
     
-    if platform.system() == "Linux":
-        options.binary_location = "/usr/bin/chromium"
-        service = Service("/usr/bin/chromedriver")
-    else:
-        service = Service(ChromeDriverManager().install())
-        
+    service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     
     try:
