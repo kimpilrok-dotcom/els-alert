@@ -36,7 +36,13 @@ def automate_download():
     }
     options.add_experimental_option("prefs", prefs)
     
-    service = Service(ChromeDriverManager().install())
+    # 💡 수정된 부분: 리눅스(스트림릿/깃허브) 환경 크로미움 브라우저 분기 처리
+    if platform.system() == "Linux":
+        options.binary_location = "/usr/bin/chromium"
+        service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+    else:
+        service = Service(ChromeDriverManager().install())
+        
     driver = webdriver.Chrome(service=service, options=options)
     
     try:
